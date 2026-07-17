@@ -49,20 +49,21 @@ REL="builds/_rel"
 rm -rf "$REL"; mkdir -p "$REL/_w" "$REL/_l"
 cp builds/photopea-offline.html "$REL/"
 /usr/bin/ditto -c -k --keepParent builds/Photopea.app "$REL/Photopea-macos.zip"
-cp builds/Photopea.bat builds/Install-OpenWith-Windows.bat builds/Uninstall-OpenWith-Windows.bat builds/photopea-offline.html "$REL/_w/"; /usr/bin/ditto -c -k "$REL/_w" "$REL/Photopea-windows.zip"
-cp builds/photopea.sh builds/Photopea.desktop builds/install-openwith-linux.sh builds/photopea-icon.png builds/photopea-offline.html "$REL/_l/"; /usr/bin/ditto -c -k "$REL/_l" "$REL/Photopea-linux.zip"
+# --norsrc/--noextattr/--noqtn: don't embed macOS metadata — it unzips as junk ._* files on Windows/Linux
+cp builds/Photopea.bat builds/Install-OpenWith-Windows.bat builds/Uninstall-OpenWith-Windows.bat builds/photopea-offline.html "$REL/_w/"; /usr/bin/ditto -c -k --norsrc --noextattr --noqtn "$REL/_w" "$REL/Photopea-windows.zip"
+cp builds/photopea.sh builds/Photopea.desktop builds/install-openwith-linux.sh builds/photopea-icon.png builds/photopea-offline.html "$REL/_l/"; /usr/bin/ditto -c -k --norsrc --noextattr --noqtn "$REL/_l" "$REL/Photopea-linux.zip"
 rm -rf "$REL/_w" "$REL/_l"
 EXTRA_ASSETS=""
 [ -f builds/Photopea-portable.exe ] && {
   mkdir -p "$REL/_wa"
   cp builds/Photopea-portable.exe builds/Photopea-portable-OpenWith-Install.bat builds/Photopea-portable-OpenWith-Uninstall.bat "$REL/_wa/"
-  /usr/bin/ditto -c -k "$REL/_wa" "$REL/Photopea-windows-app.zip"; rm -rf "$REL/_wa"
+  /usr/bin/ditto -c -k --norsrc --noextattr --noqtn "$REL/_wa" "$REL/Photopea-windows-app.zip"; rm -rf "$REL/_wa"
   EXTRA_ASSETS="$EXTRA_ASSETS $REL/Photopea-windows-app.zip"
 }
 [ -f builds/Photopea.AppImage ] && {
   mkdir -p "$REL/_la"
   cp builds/Photopea.AppImage builds/Photopea-AppImage-openwith.sh "$REL/_la/"
-  /usr/bin/ditto -c -k "$REL/_la" "$REL/Photopea-linux-app.zip"; rm -rf "$REL/_la"
+  /usr/bin/ditto -c -k --norsrc --noextattr --noqtn "$REL/_la" "$REL/Photopea-linux-app.zip"; rm -rf "$REL/_la"
   EXTRA_ASSETS="$EXTRA_ASSETS $REL/Photopea-linux-app.zip"
 }
 
