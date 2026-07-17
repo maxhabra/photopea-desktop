@@ -63,6 +63,7 @@ ASSET_FILES = {   # served raw (already-compressed) via data: URL, dense-encoded
     "code/ext/hb.wasm":      "code/ext/hb.wasm",
     "rsrc/basic/basic.zip":  "rsrc/basic/basic.zip",
     "rsrc/basic/fa.zip":     "rsrc/basic/fa.zip",
+    "rsrc/sf2/MagicSF.zip":  "rsrc/sf2/MagicSF.zip",   # Jampea soundfont (music playback)
 }
 print("Embedding binary assets...")
 amap = {}
@@ -71,6 +72,8 @@ for n, (key, path) in enumerate(p for p in ASSET_FILES.items()):
         bid = "_A%d" % n
         blocks.append((bid, raw_dense(path)))
         amap[bid] = key
+    else:
+        print("WARNING: %s missing — building without it (download it into photopea.com/ to include)." % path)
 
 lang_files = sorted(glob.glob("code/lang/*.js"),
                     key=lambda p: int(os.path.splitext(os.path.basename(p))[0]) if os.path.splitext(os.path.basename(p))[0].isdigit() else 0)

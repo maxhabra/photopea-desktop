@@ -184,8 +184,9 @@ links); clicking sets `__ppmode` and reloads. So one HTML/app covers all three e
 - Vectorpea/Jampea show a "Loading local fonts" toast that never dismisses offline (the fonts it
   waits for aren't shipped). It's a non-blocking `.alertpanel`; the bootstrap hides the stuck
   startup one after a few seconds.
-- Jampea's soundfont (`rsrc/sf2/MagicSF.zip`) isn't in the offline copy → dead-listed (music
-  playback is limited; the editor works).
+- Jampea's soundfont (`rsrc/sf2/MagicSF.zip`, 7 MB) is embedded by pack.py when present in the
+  offline copy (download it from photopea.com if missing) → music playback works. If absent,
+  the URL stays dead-listed (editor still works, just no sound) and pack.py prints a warning.
 
 Why it works:
 - CSS + the 3 JS bundles are gzip+base64 embedded and decompressed at runtime via the

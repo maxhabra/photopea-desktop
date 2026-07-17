@@ -39,6 +39,7 @@ cd photopea-desktop
 npm install
 
 # 1) put a local copy of the Photopea site into ./photopea.com/
+#    (for Jampea sound, include rsrc/sf2/MagicSF.zip — pack.py warns if it's missing)
 # 2) build:
 sh refresh.sh                # apply the offline patches (details: refresh.md)
 python3 pack.py              # -> builds/photopea-offline.html (single file)
@@ -113,6 +114,7 @@ routing automatically: raster → sharp, layered → Photopea (same options).
 ## Notes & limits
 
 - Clipboard Paste and Local Fonts need the served version (secure context) — see above.
-- Jampea music playback needs a soundfont that isn't shipped (the editor itself works).
+- Jampea music playback needs the soundfont bundled at build time (see Build above); without
+  it the editor works but plays no sound.
 - Needs a modern browser with `DecompressionStream` (Chrome/Edge, Safari 16.4+, Firefox 113+).
   The macOS app needs Xcode CLT to build; `cli.js` needs Chrome; the Electron apps need `npm install`.
