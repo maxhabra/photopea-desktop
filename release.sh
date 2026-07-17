@@ -76,7 +76,16 @@ gh release create "$VERSION" \
   --repo "$REPO" --title "Photopea Desktop $VERSION" \
   --notes "Offline Photopea / Vectorpea / Jampea (top-bar toggle), all 50 UI languages bundled. Private release, internal use.
 
-Assets: photopea-offline.html (single file, any browser) · Photopea-macos.zip (native app) · Photopea-windows.zip (Photopea.bat + html) · Photopea-linux.zip (photopea.sh + .desktop + html) · Photopea-windows-app.zip (single-file Photopea-portable.exe) / Photopea-linux-app.zip (single-file Photopea.AppImage) — standalone Electron apps, no Chrome needed, raised memory ceiling."
+## Assets
+
+- **photopea-offline.html** — single file, opens in any modern browser
+- **Photopea-macos.zip** — native macOS app (signed + notarized)
+- **Photopea-windows.zip** — Photopea.bat launcher + html (needs installed Chrome/Edge)
+- **Photopea-linux.zip** — photopea.sh launcher + .desktop + html (needs installed Chrome/Edge)
+- **Photopea-windows-app.zip** — single-file Photopea-portable.exe, standalone Electron app
+- **Photopea-linux-app.zip** — single-file Photopea.AppImage, standalone Electron app
+
+**Big PSD files? Use the standalone Electron apps** (windows-app / linux-app). They run Photopea in a dedicated process with the V8 memory ceiling raised to ~80% of machine RAM — a normal Chrome tab caps out around 4 GB and gets OOM-killed or discarded on large documents. No Chrome install needed."
 
 rm -rf "$REL"
 echo "Done: https://github.com/$REPO/releases/tag/$VERSION"
