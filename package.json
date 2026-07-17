@@ -1,0 +1,16 @@
+{
+  "name": "photopea-offline",
+  "version": "1.0.0",
+  "description": "Offline Photopea (+ Vectorpea/Jampea): single-file build, macOS app, and a headless batch CLI.",
+  "bin": {
+    "photopea": "cli.js",
+    "convert-smart": "convert-smart.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.0.0",
+    "sharp": "^0.35.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

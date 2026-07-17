@@ -1,0 +1,16 @@
+# Photopea's own (proprietary) code — NOT redistributed. Download it yourself and run refresh.sh.
+photopea.com/
+
+# generated artifacts (they embed Photopea's code)
+builds/
+
+# dependencies
+node_modules/
+test/node_modules/
+
+# compiled test helper
+test/winlist
+
+# misc
+.DS_Store
+*.log
