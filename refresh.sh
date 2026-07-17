@@ -98,6 +98,12 @@ s = patch(s, "open-file uses .click()",
           'var l=document.createEvent("MouseEvents");l.initMouseEvent("click",!0,!0,document.defaultView,1,0,0,0,0,!1,!1,!1,!1,0,null);\nm.dispatchEvent(l)',
           'm.click()')
 
+print("\n[2c] File->Open uses the native OS file picker instead of the 'Open From Storage' dialog")
+print("     (the storage browser needs File System Access / a real origin, which don't work offline -> blank panel)")
+s = patch(s, "File->Open goes native",
+          'if(F!=!0&&$!=!0&&this.GM("open"))return;',
+          'if(F!=!0&&$!=!0&&false)return;')
+
 print("\n[3] hide unwanted UI")
 s = patch(s, "hide Home sidebar",
           'if(this.xL){U=[[[1,19,3],null,"strg/home"]].concat(U.concat(jv.WW));',

@@ -61,11 +61,6 @@ asset_entries = [
 asset_entries.append(
     '  "img/nft.png": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="'
 )
-# storage panels (Open From Storage -> This Device / Dropbox / ...) load code/storages/*.html into an
-# iframe; embed them so the panel renders instead of a blank white area.
-for p in sorted(glob.glob("code/storages/*.html")):
-    key = p.replace(os.sep, "/")
-    asset_entries.append('  %r: "data:text/html;charset=utf-8;base64,%s"' % (key, raw_b64(p)))
 assets_js = ",\n".join(asset_entries)
 
 # UI translations: code/lang/<index>.js — embed each gzip+base64, decompressed at runtime into __ASSET
