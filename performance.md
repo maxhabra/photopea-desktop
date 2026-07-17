@@ -66,6 +66,25 @@ downscaling (a 20000×15000 layer = 1.2 GB).
 Cache the built proxy PSD in OPFS keyed by `name + size + mtime`. Reopening a big file becomes
 instant, with no 2 GB re-read spike.
 
+### A4. Skip hidden layers (lazy visibility)  ✅
+Hidden layers (and layers inside hidden groups) still cost full RAM in Photopea — the eye toggle
+only affects compositing, not decoding. The proxy now writes effectively-hidden layers as EMPTY
+placeholders (name/blend/opacity/panel entry kept, no pixels decoded); a 1 s visibility watcher
+polls them in the open document and, when the user toggles one on, decodes it from the stashed
+file at proxy scale and injects the pixels in place (~1–2 s). Files with many hidden layers
+(mockups/templates) get a proportionally smaller proxy. The badge shows the skipped count.
+
+Hard-won Photopea scripting constraints (offline build, discovered while implementing):
+- `layer.translate()` and cross-document `layer.duplicate()` CRASH the script runner
+  (async `_1 of null`), and `doc.artLayers` crashes on documents containing a group — use
+  `doc.layers` and avoid both methods.
+- Cross-doc pixel moves that work: open a temp doc with the SAME canvas dims as the target and
+  the layer pre-positioned, then `selection.selectAll(); selection.copy()` and `paste()` with the
+  empty placeholder selected — Photopea pastes in place and INTO the active empty layer, so the
+  placeholder keeps its identity. Mutating scripts often die AFTER doing the work — post them
+  fire-and-forget and verify with read-only scripts (those respond reliably).
+- postMessage-opened docs can share the same `name` — never identify docs by name alone.
+
 ## B. Smarter escalation — avoid ever loading the full doc
 
 Full escalation re-opens the entire original (`escalate()` posts the full ArrayBuffer),

@@ -116,6 +116,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+    // WKWebView silently drops alert()/confirm()/prompt() unless the UI delegate shows them.
+    // Photopea relies on confirm() ("unsaved work" on tab close) and alert() heavily.
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let a = NSAlert()
+        a.messageText = message
+        a.addButton(withTitle: "OK")
+        a.beginSheetModal(for: window) { _ in completionHandler() }
+    }
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let a = NSAlert()
+        a.messageText = message
+        a.addButton(withTitle: "OK")
+        a.addButton(withTitle: "Cancel")
+        a.beginSheetModal(for: window) { resp in completionHandler(resp == .alertFirstButtonReturn) }
+    }
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String,
+                 defaultText: String?, initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping (String?) -> Void) {
+        let a = NSAlert()
+        a.messageText = prompt
+        let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        tf.stringValue = defaultText ?? ""
+        a.accessoryView = tf
+        a.addButton(withTitle: "OK")
+        a.addButton(withTitle: "Cancel")
+        a.beginSheetModal(for: window) { resp in
+            completionHandler(resp == .alertFirstButtonReturn ? tf.stringValue : nil)
+        }
+    }
     // WKWebView does not show a file picker on its own — present NSOpenPanel for <input type=file>
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
                  initiatedByFrame frame: WKFrameInfo,

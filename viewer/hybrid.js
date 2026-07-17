@@ -28,6 +28,8 @@ let previewMode = true;      // true until the user escalates for the current do
 let stashedFile = null;      // the original File/Blob (disk-backed -> cheap; re-read on escalate)
 let stashedMeta = null;      // lazy-psd metadata of the stashed file (per-layer escalation, B1)
 let stashedTree = null;      // proxy layer tree mirroring Photopea's panel, leaves carry records
+let stashedScale = 0;        // proxy scale (needed to decode skipped layers on toggle, A4)
+let stashedSkipped = null;   // hidden layers whose pixels were skipped: [{rec, domPath}]
 
 const isPsd = (name) => /\.ps[db]$/i.test(name || '');
 
@@ -136,46 +138,79 @@ async function bakeMaskStrip(blob, meta, rec, mch, rgba, w, y0, y1) {
   }
 }
 
+const hasPixels = (rec, meta) => {
+  if (rec.right - rec.left <= 0 || rec.bottom - rec.top <= 0) return false;
+  const ids = new Set(rec.channels.map(c => c.id));
+  return meta.mode === 3 ? ids.has(0) && ids.has(1) && ids.has(2) : ids.has(0);
+};
+
 async function buildProxyLazy(blob, forceScale) {
   const scale = forceScale || scaleForSize(blob.size);
   if (scale >= 1) return null;                                  // <= 800 MB: open the original as-is
   const meta = await parseLazyPsd(blob);
   console.log('[hybrid] psd', meta.width + 'x' + meta.height, meta.layers.length, 'records,',
               (blob.size / 1e9).toFixed(2) + ' GB -> scale', scale, '(lazy)');
-  // records are in file order (bottom-to-top) — exactly ag-psd's children order. A group is
-  // bracketed by its sectionType-3 divider (before its children) and its header layer (after).
-  // A parallel nav tree (same shape/order, leaves carry the raw record) is kept for B1.
-  const root = { children: [] }, navRoot = { children: [] };
-  const stack = [root], navStack = [navRoot];
+  // Pass 1 — structure only. Records are in file order (bottom-to-top) — exactly ag-psd's
+  // children order. A group is bracketed by its sectionType-3 divider (before its children)
+  // and its header layer (after) — so a group's own hidden flag is unknown until its header,
+  // which is why pixels are decoded in a second pass.
+  const navRoot = { children: [] };
+  const navStack = [navRoot];
   for (const rec of meta.layers) {
-    const common = { name: rec.name, hidden: rec.hidden, opacity: rec.opacity / 255,
-                     blendMode: BLEND[rec.blendKey] || 'normal' };
-    if (rec.sectionType === 3) {
-      stack.push({ children: [] }); navStack.push({ children: [] });
-      continue;
-    }
+    if (rec.sectionType === 3) { navStack.push({ children: [] }); continue; }
     if (rec.sectionType === 1 || rec.sectionType === 2) {
-      const grp = stack.length > 1 ? stack.pop() : { children: [] };
       const nav = navStack.length > 1 ? navStack.pop() : { children: [] };
-      stack[stack.length - 1].children.push(
-        { ...common, opened: rec.sectionType === 1, children: grp.children });
-      navStack[navStack.length - 1].children.push({ children: nav.children });
+      navStack[navStack.length - 1].children.push({ rec, children: nav.children });
       continue;
     }
-    const layer = { ...common, clipping: rec.clipping,
-                    left: Math.round(rec.left * scale), top: Math.round(rec.top * scale) };
-    const canvas = await lazyLayerCanvas(blob, meta, rec, scale);
-    if (canvas) layer.canvas = canvas;
-    stack[stack.length - 1].children.push(layer);
     navStack[navStack.length - 1].children.push({ rec });
   }
+  // Pass 2 — build the ag-psd tree; decode pixels ONLY for effectively-visible layers (A4:
+  // a layer hidden itself or inside a hidden group is written as an empty placeholder and
+  // decoded later, on the user's visibility toggle — see the visibility watcher).
+  const skipped = [];
+  const toAg = async (nodes, parentHidden) => {
+    const out = [];
+    for (const n of nodes) {
+      const rec = n.rec;
+      const common = { name: rec.name, hidden: rec.hidden, opacity: rec.opacity / 255,
+                       blendMode: BLEND[rec.blendKey] || 'normal' };
+      if (n.children) {
+        out.push({ ...common, opened: rec.sectionType === 1,
+                   children: await toAg(n.children, parentHidden || rec.hidden) });
+        continue;
+      }
+      const layer = { ...common, clipping: rec.clipping,
+                      left: Math.round(rec.left * scale), top: Math.round(rec.top * scale) };
+      if (parentHidden || rec.hidden) {
+        if (hasPixels(rec, meta)) skipped.push({ rec, node: n });
+      } else {
+        const canvas = await lazyLayerCanvas(blob, meta, rec, scale);
+        if (canvas) layer.canvas = canvas;
+      }
+      out.push(layer);
+    }
+    return out;
+  };
+  const children = await toAg(navRoot.children, false);
+  if (skipped.length) console.log('[hybrid]', skipped.length, 'hidden layer(s) skipped (decoded on toggle)');
   const doc = {
     width: Math.max(1, Math.round(meta.width * scale)),
     height: Math.max(1, Math.round(meta.height * scale)),
-    children: root.children,
+    children,
   };
   const buf = writePsd(doc, { generateThumbnail: false, invalidateTextLayers: true });
-  return { buf, meta, tree: navRoot.children };
+  // DOM path (top-first, Photopea panel order) for each skipped layer, for the watcher
+  const domPathOf = (target, nodes) => {
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i], dom = nodes.length - 1 - i;
+      if (n === target) return [dom];
+      if (n.children) { const p = domPathOf(target, n.children); if (p) return [dom, ...p]; }
+    }
+    return null;
+  };
+  return { buf, meta, scale, tree: navRoot.children,
+           skipped: skipped.map(s => ({ rec: s.rec, domPath: domPathOf(s.node, navRoot.children) })) };
 }
 
 async function buildProxyPsdLazy(blob, forceScale) {   // diagnostics/tests: proxy bytes only
@@ -303,7 +338,8 @@ FileReader.prototype.readAsArrayBuffer = function (blob) {
       let proxy = null;
       try {
         const r = await buildProxyLazy(blob, forced);
-        if (r) { proxy = r.buf; stashedMeta = r.meta; stashedTree = r.tree; }
+        if (r) { proxy = r.buf; stashedMeta = r.meta; stashedTree = r.tree;
+                 stashedScale = r.scale; stashedSkipped = r.skipped; }
       } catch (e) {
         console.warn('[hybrid] lazy proxy failed:', e);
         if (blob.size <= FULL_FALLBACK_MAX) {
@@ -314,20 +350,192 @@ FileReader.prototype.readAsArrayBuffer = function (blob) {
       if (!proxy) { origRead.call(fr, blob); return; }         // give up -> open the original
       stashedFile = blob;                                      // keep disk-backed file for escalation
       deliver(fr, proxy.buffer || proxy);                      // Photopea opens the downscaled layer tree
-      setTimeout(showBadge, 400);
+      setTimeout(() => { showBadge(); startVisibilityWatch(); captureProxyName(); }, 400);
     })();
     return;
   }
   return origRead.call(this, blob);
 };
 
+// the proxy doc's name is needed to close it on escalation — capture it once it finishes opening
+async function captureProxyName() {
+  for (let t = 0; t < 20 && !proxyDocName; t++) {
+    proxyDocName = (await peaEval('app.documents.length?app.activeDocument.name:null')) || null;
+    if (!proxyDocName) await new Promise(r => setTimeout(r, 500));
+  }
+}
+
 async function escalate() {
   if (!stashedFile || !previewMode) return;
   previewMode = false;
-  const file = stashedFile; stashedFile = stashedMeta = stashedTree = null;
+  const proxyName = proxyDocName ||
+    (await peaEval('app.documents.length?app.activeDocument.name:null'));
+  const proxyW = await peaEval('app.documents.length?app.activeDocument.width:0');
+  const fullW = stashedMeta ? stashedMeta.width : null;      // full-res width (lazy path only)
+  stopVisibilityWatch();
+  const file = stashedFile;
+  stashedFile = stashedMeta = stashedTree = stashedSkipped = null;
   hideBadge();
+  const newName = String(file.name || '').replace(/\.[^.]+$/, '');
   const ab = await file.arrayBuffer();                       // re-read original from disk
-  window.postMessage(ab, '*', [ab]);                         // opens full-res doc; app is NOT reloaded
+  // a synthetic drop (__openU8) is IGNORED by Photopea while any document is open, so the full
+  // file must go through postMessage — which opens it under a generic name ("file"). The loop
+  // below renames it back to the original filename once it appears, then closes the proxy.
+  // Docs are identified by (name, width) — object identity is useless, every script eval hands
+  // out fresh Document wrappers.
+  window.postMessage(ab, '*', [ab]);
+  if (!proxyName) return;
+  const PN = JSON.stringify(proxyName), NEW = JSON.stringify(newName);
+  for (let tries = 0; tries < 600; tries++) {                // full-res load can take minutes
+    const r = await peaEval(
+      '(function(){var A=app.documents,px=null,fx=null;' +
+      'for(var i=0;i<A.length;i++){var D=A[i];' +
+      'if(D.name==' + PN + '&&D.width==' + JSON.stringify(proxyW) + '){px=D;continue}' +
+      (fullW != null
+        ? 'if(fx==null&&D.width==' + JSON.stringify(fullW) + '&&D.name!=' + NEW + ')fx=D;'
+        : 'if(fx==null&&D.name=="file")fx=D;') +
+      '}' +
+      'if(!fx)return "wait";' +                              // full doc not open yet
+      'if(' + NEW + ')fx.name=' + NEW + ';' +
+      'if(px)px.close(SaveOptions.DONOTSAVECHANGES);' +
+      'return "ok"})()');
+    if (r === 'ok') { console.log('[hybrid] full-res doc renamed, low-res proxy closed'); break; }
+    if (r !== 'wait' && r !== undefined) { console.warn('[hybrid] proxy swap failed:', r); break; }
+    await new Promise(res => setTimeout(res, 500));
+  }
+}
+
+// run a Photopea script and read back one JS expression's value. In the single-file build,
+// Photopea scripts run in OUR window's JS context, so a window global is the return channel.
+function peaEval(expr, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    delete window.__hybridR;
+    window.postMessage('try{window.__hybridR=' + expr + '}catch(e){window.__hybridR="__ERR"}', '*');
+    let waited = 0;
+    const iv = setInterval(() => {
+      if (window.__hybridR !== undefined || (waited += 50) > timeoutMs) {
+        clearInterval(iv);
+        resolve(window.__hybridR === '__ERR' ? undefined : window.__hybridR);
+      }
+    }, 50);
+  });
+}
+
+// ---- A4: visibility watcher — decode a skipped hidden layer when the user toggles it on ------
+//
+// The proxy writes effectively-hidden layers as empty placeholders (no pixels decoded). This
+// watcher polls their effective visibility in the open proxy document; when one turns visible,
+// its pixels are decoded from the stashed file AT PROXY SCALE (cheap), opened as a temp doc,
+// duplicated into the proxy in the placeholder's exact spot, and the placeholder is removed.
+let watchTimer = null;
+let proxyDocName = null;
+let injecting = false;
+
+function stopVisibilityWatch() {
+  if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
+  proxyDocName = null;
+}
+
+function startVisibilityWatch() {
+  stopVisibilityWatch();
+  if (!stashedSkipped || !stashedSkipped.length) return;
+  watchTimer = setInterval(watchTick, 1000);
+}
+
+async function watchTick() {
+  if (injecting || !previewMode || !stashedFile) return;
+  if (!stashedSkipped || !stashedSkipped.length) { stopVisibilityWatch(); return; }
+  if (!proxyDocName) {
+    proxyDocName = await peaEval('app.activeDocument.name');   // proxy is the doc just opened
+    if (!proxyDocName) return;
+  }
+  const paths = JSON.stringify(stashedSkipped.map(s => s.domPath));
+  const vis = await peaEval(
+    '(function(){var A=app.documents,D=null;' +
+    'for(var i=0;i<A.length;i++)if(A[i].name==' + JSON.stringify(proxyDocName) + '){D=A[i];break}' +
+    'if(!D)return "null";var P=' + paths + ',V=[];' +
+    'for(var j=0;j<P.length;j++){var n=D,v=true;' +
+    'for(var k=0;k<P[j].length;k++){n=n.layers[P[j][k]];if(!n){v=false;break}}' +
+    'var t=n;while(v&&t&&t!=D){if(!t.visible)v=false;t=t.parent==D?null:t.parent}' +
+    'V.push(!!v)}return JSON.stringify(V)})()');
+  let flags = null;
+  try { flags = JSON.parse(vis || 'null'); } catch (e) { /* ignore */ }
+  if (!flags) return;
+  const idx = flags.findIndex(v => v);
+  if (idx >= 0) await injectSkippedLayer(idx);
+}
+
+async function injectSkippedLayer(idx) {
+  injecting = true;
+  const { rec, domPath } = stashedSkipped[idx];
+  stashedSkipped.splice(idx, 1);
+  const label = badgeLabel('Loading hidden layer "' + rec.name + '"…');
+  try {
+    const canvas = await lazyLayerCanvas(stashedFile, stashedMeta, rec, stashedScale);
+    if (!canvas) return;
+    // temp doc has the PROXY's canvas dims with the layer pre-positioned: duplicating between
+    // same-size docs keeps coordinates, so no post-move is needed (layer.translate breaks
+    // Photopea's script runner). The layer canvas is still layer-sized — dims are just headers.
+    const buf = writePsd({
+      width: Math.max(1, Math.round(stashedMeta.width * stashedScale)),
+      height: Math.max(1, Math.round(stashedMeta.height * stashedScale)),
+      children: [{ name: '__hybridinject',
+                   left: Math.round(rec.left * stashedScale),
+                   top: Math.round(rec.top * stashedScale), canvas }] },
+      { generateThumbnail: false, invalidateTextLayers: true });
+    window.postMessage(buf, '*', [buf]);                       // opens the temp single-layer doc
+    // Cross-doc layer moves are done via copy -> paste-into-the-selected-empty-placeholder:
+    // Photopea pastes in place (same-size docs) and INTO the active empty layer, so the
+    // placeholder keeps its name/blend/opacity/panel spot. duplicate()/translate() are avoided —
+    // they crash Photopea's script runner — and mutating scripts often die AFTER doing the work,
+    // so each step is posted fire-and-forget and success is verified with read-only scripts
+    // (those respond reliably).
+    const post = (s) => window.postMessage(s, '*');
+    const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+    const nav = domPath.map(i => 'n=n.layers[' + i + '];').join('');
+    const findTemp = 'var A=app.documents,S=null;for(var i=0;i<A.length;i++)' +
+      'if(A[i].layers.length==1&&A[i].layers[0].name=="__hybridinject"){S=A[i];break}';
+    const findProxy = 'var A=app.documents,D=null;for(var i=0;i<A.length;i++)' +
+      'if(A[i].name==' + JSON.stringify(proxyDocName) +
+      '&&!(A[i].layers.length==1&&A[i].layers[0].name=="__hybridinject")){D=A[i];break}';
+    // wait for the temp doc to open
+    let seen = false;
+    for (let t = 0; t < 40 && !seen; t++) {
+      seen = (await peaEval('(function(){' + findTemp + 'return S?"y":"n"})()')) === 'y';
+      if (!seen) await sleep(250);
+    }
+    if (!seen) { console.warn('[hybrid] inject: temp doc never opened:', rec.name); return; }
+    const ex = [Math.round(rec.left * stashedScale), Math.round(rec.top * stashedScale)];
+    const exW = canvas.width, exH = canvas.height;
+    const boundsOk = (b) => Array.isArray(b) && b[0] === ex[0] && b[1] === ex[1] &&
+                            b[2] === ex[0] + exW && b[3] === ex[1] + exH;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      post('(function(){' + findTemp + 'if(S){app.activeDocument=S;S.selection.selectAll();S.selection.copy()}})()');
+      await sleep(400);
+      post('(function(){' + findProxy + 'if(D){app.activeDocument=D;var n=D;' + nav + 'D.activeLayer=n}})()');
+      await sleep(400);
+      post('app.activeDocument.paste()');
+      await sleep(400);
+      const b = await peaEval('(function(){' + findProxy + 'if(!D)return "x";var n=D;' + nav +
+        'var b=n.bounds;return JSON.stringify([b[0].value,b[1].value,b[2].value,b[3].value])})()');
+      let bounds = null;
+      try { bounds = JSON.parse(b || 'null'); } catch (e) { /* ignore */ }
+      if (boundsOk(bounds)) {
+        console.log('[hybrid] injected hidden layer:', rec.name);
+        post('(function(){' + findTemp + 'if(S)S.close(SaveOptions.DONOTSAVECHANGES)})()');
+        await sleep(300);
+        post('(function(){' + findProxy + 'if(D)app.activeDocument=D})()');
+        return;
+      }
+    }
+    console.warn('[hybrid] inject failed (pixels never landed):', rec.name);
+    post('(function(){' + findTemp + 'if(S)S.close(SaveOptions.DONOTSAVECHANGES)})()');
+  } catch (e) {
+    console.warn('[hybrid] inject failed:', rec.name, e);
+  } finally {
+    label.restore();
+    injecting = false;
+  }
 }
 
 // ---- per-layer escalation (B1): open the ACTIVE layer as its own full-res document -----------
@@ -370,6 +578,7 @@ async function escalateActiveLayer() {
     if (!C || i < 0 || i >= C.length) { console.warn('[hybrid] layer path mismatch', path); return; }
     node = C[C.length - 1 - i];
   }
+  if (node.children) { console.warn('[hybrid] active item is a group — select a pixel layer'); return; }
   const rec = node.rec;
   if (!rec) { console.warn('[hybrid] active item is a group — select a pixel layer'); return; }
   const label = badgeLabel('Extracting "' + rec.name + '" at full resolution…');
@@ -403,12 +612,15 @@ function showBadge() {
   if (document.getElementById('__hybridbadge')) return;
   const b = document.createElement('div');
   b.id = '__hybridbadge';
-  b.style.cssText = 'position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:2147483647;' +
+  b.style.cssText = 'position:fixed;top:96px;left:50%;transform:translateX(-50%);z-index:2147483647;' +
     'background:#3482f6;color:#fff;font:12px -apple-system,sans-serif;padding:5px 12px;border-radius:14px;' +
     'cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.4);user-select:none';
   const main = document.createElement('span');
   main.id = '__hybridmain';
-  main.textContent = 'Low-res preview (low RAM) - click for full resolution & editing';
+  const nSkip = stashedSkipped ? stashedSkipped.length : 0;
+  main.textContent = 'Low-res preview (low RAM' +
+    (nSkip ? ', ' + nSkip + ' hidden layer' + (nSkip > 1 ? 's' : '') + ' skipped' : '') +
+    ') - click for full resolution & editing';
   main.title = 'Loads every layer at full resolution for editing (uses more memory)';
   main.onclick = escalate;
   b.appendChild(main);

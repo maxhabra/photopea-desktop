@@ -34,6 +34,7 @@ agPsd.initializeCanvas(
     { name: 'semi', opacity: 0.5, imageData: solid(20, 10, [255, 0, 0, 200]), left: 5, top: 6 },
     { name: 'masked', imageData: solid(30, 20, [0, 255, 0, 255]), left: 10, top: 10,
       mask: { top: 12, left: 12, bottom: 22, right: 32, imageData: solid(20, 10, [100, 100, 100, 255]) } },
+    { name: 'ghost', hidden: true, imageData: solid(12, 8, [0, 0, 255, 255]), left: 30, top: 20 },
     { name: 'G', opened: true, children: [
       { name: 'inner1', imageData: solid(4, 4, [9, 9, 9, 255]), left: 1, top: 1 },
       { name: 'inner2', imageData: solid(4, 4, [7, 7, 7, 255]), left: 8, top: 8 },
@@ -45,9 +46,14 @@ agPsd.initializeCanvas(
     args: ['--allow-file-access-from-files'] });
   try {
     const page = await browser.newPage();
+    page.on('error', (e) => console.log('# PAGE CRASHED:', String(e)));
+    page.on('framedetached', () => console.log('# frame detached'));
+    page.on('console', (m) => { const t = m.text(); if (/\[hybrid\]/.test(t)) console.log('#', t.slice(0, 160)); });
+    const step = (n) => console.log('# step:', n);
     await page.goto('file://' + HTML, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction('typeof window.__buildProxyPsdLazy === "function"', { timeout: 30000 });
 
+    step('proxy-build');
     const proxyB64 = await page.evaluate(async (b64) => {
       const bin = atob(b64);
       const bytes = new Uint8Array(bin.length);
@@ -66,8 +72,12 @@ agPsd.initializeCanvas(
     ok('proxy dimensions halved', proxy.width === 32 && proxy.height === 24,
        proxy.width + 'x' + proxy.height);
     const names = proxy.children.map(c => c.name).join(',');
-    ok('layer order preserved (bottom-first)', names === 'bottom,semi,masked,G', names);
-    const grp = proxy.children[3];
+    ok('layer order preserved (bottom-first)', names === 'bottom,semi,masked,ghost,G', names);
+    const ghost = proxy.children[3];
+    ok('A4: hidden layer kept in panel but pixels skipped',
+       ghost.hidden === true && (!ghost.imageData || !ghost.imageData.width),
+       'hidden=' + ghost.hidden + ' px=' + (ghost.imageData ? ghost.imageData.width + 'x' + ghost.imageData.height : 'none'));
+    const grp = proxy.children[4];
     ok('group children preserved', !!grp.children && grp.children.map(c => c.name).join(',') === 'inner1,inner2',
        grp.children && grp.children.map(c => c.name).join(','));
 
@@ -89,12 +99,19 @@ agPsd.initializeCanvas(
     // ---- live-Photopea tests: script channel, per-layer escalation (B1), history cap (C1) ----
     // Photopea scripts sent via postMessage run in the page's own JS context, so a script can
     // report back through a window global that page.waitForFunction can see.
-    const runScript = async (script, resultExpr, timeout = 30000) => {
-      await page.evaluate((s) => window.postMessage(s, '*'), script);
-      if (!resultExpr) return null;
-      await page.waitForFunction(resultExpr, { timeout });
-      return page.evaluate(resultExpr);
+    // Photopea can drop a posted script while busy (opening/closing docs) — re-post and re-wait
+    // a few times before giving up. All scripts used here are idempotent assignments.
+    const runScript = async (script, resultExpr, timeout = 10000, retries = 4) => {
+      for (let attempt = 0; ; attempt++) {
+        await page.evaluate((s) => window.postMessage(s, '*'), script);
+        if (!resultExpr) return null;
+        try {
+          await page.waitForFunction(resultExpr, { timeout });
+          return await page.evaluate(resultExpr);
+        } catch (e) { if (attempt >= retries) throw e; }
+      }
     };
+    step('ping');
     // wait until Photopea's script engine answers a ping
     await page.evaluate(() => {
       window.__ping = 0;
@@ -105,6 +122,7 @@ agPsd.initializeCanvas(
     await page.evaluate(() => window.__stopPing());
     ok('Photopea script channel alive', true);
 
+    step('open-proxy');
     // open the proxy through the REAL FileReader hook (forced scale), then hand the delivered
     // buffer to Photopea — the same buffer Photopea's open path would have received
     await page.evaluate(async (b64) => {
@@ -125,8 +143,41 @@ agPsd.initializeCanvas(
     const nDocs = await runScript('window.__docs=app.documents.length', 'window.__docs');
     ok('proxy opened in Photopea', nDocs === 1, 'documents=' + nDocs);
 
-    // B1: select 'semi' (top-first index 2 of [G, masked, semi, bottom]) and escalate it
-    await runScript('app.activeDocument.activeLayer=app.activeDocument.layers[2];window.__sel=app.activeDocument.activeLayer.name',
+    step('A4');
+    // A4: ghost (top-first index 1) starts hidden+empty; toggling it visible must trigger the
+    // watcher to decode + inject its pixels at the layer's proxy position (15,10)-(21,14)
+    // during injection Photopea may be busy opening the temp doc and drop a script — treat a
+    // per-probe timeout as "not yet" and keep polling
+    const bounds = async (tag) => {
+      try {
+        return JSON.parse(await runScript(
+          `try{var _b=app.activeDocument.layers[1].bounds;window.__gb${tag}=JSON.stringify([_b[0].value,_b[1].value,_b[2].value,_b[3].value])}catch(e){window.__gb${tag}='"err"'}`,
+          `window.__gb${tag}`, 8000));
+      } catch (e) { return 'timeout'; }
+    };
+    ok('A4: ghost placeholder empty', String(await bounds('0')) === '0,0,0,0', String(await bounds('0')));
+    await runScript('app.activeDocument.layers[1].visible=true;window.__tg=1', 'window.__tg');
+    let gb = null;
+    for (let tries = 0; tries < 40; tries++) {
+      await new Promise(r => setTimeout(r, 500));
+      gb = await bounds('t' + tries);
+      if (String(gb) === '15,10,21,14') break;
+    }
+    ok('A4: toggled-on layer injected at proxy position', String(gb) === '15,10,21,14', String(gb));
+    let gname = null;
+    for (let tries = 0; tries < 5 && gname !== 'ghost'; tries++) {
+      try {
+        gname = await runScript(
+          `try{window.__gn${tries}=app.activeDocument.layers[1].name}catch(e){window.__gn${tries}="err"}`,
+          `window.__gn${tries}`, 8000);
+      } catch (e) { /* dropped script — retry */ }
+      if (gname !== 'ghost') await new Promise(r => setTimeout(r, 500));
+    }
+    ok('A4: injected layer keeps its name', gname === 'ghost', String(gname));
+
+    step('B1');
+    // B1: select 'semi' (top-first index 3 of [G, ghost, masked, semi, bottom]) and escalate it
+    await runScript('app.activeDocument.activeLayer=app.activeDocument.layers[3];window.__sel=app.activeDocument.activeLayer.name',
                     'window.__sel');
     await page.evaluate(() => window.__escalateActiveLayer());
     await page.evaluate(() => { window.__docs = 0; });
@@ -147,6 +198,7 @@ agPsd.initializeCanvas(
     const stillPreview = await page.evaluate(() => !!document.getElementById('__hybridbadge'));
     ok('B1: proxy stays in preview mode (badge kept)', stillPreview);
 
+    step('C1');
     // C1: size-aware history cap. Control first: with the default ~1 GB budget a small doc keeps
     // stock history (proves the rotations DO record states); then a tiny budget caps it at 2.
     await runScript('app.documents.add(400,400,72);window.__doc3=app.documents.length', 'window.__doc3');
