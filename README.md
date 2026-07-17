@@ -62,8 +62,8 @@ UI language follows the system (change under **More**).
 | Platform | What | Notes |
 |---|---|---|
 | macOS | `Photopea.app` | native WKWebView, signed + notarized — opens on any Mac |
-| Windows | `Photopea-windows-app.zip` → `Photopea.exe` | standalone (Electron), no Chrome needed |
-| Linux | `Photopea-linux-app.zip` → `./Photopea` | standalone (Electron), no Chrome needed |
+| Windows | `Photopea-portable.exe` | single file, standalone (Electron), no Chrome needed |
+| Linux | `Photopea.AppImage` | single file — `chmod +x` and run; standalone (Electron) |
 | any | `Photopea.bat` / `photopea.sh` | tiny launchers — open the HTML in an installed Chrome/Edge app window |
 
 The standalone Windows/Linux apps are the big-file-friendly option (see *What's different*
@@ -73,9 +73,9 @@ Windows SmartScreen asks "More info → Run anyway" once. Note: Photopea's wasm 
 
 **Open With from the OS** (PSD/PSB, AI, XD, Fig, Sketch, PDF, SVG, images, RAW):
 - macOS: `Photopea.app` registers automatically (run it once if Finder doesn't list it).
-- Windows: run `Install-OpenWith.bat` (in the app folder) or `builds/Install-OpenWith-Windows.bat`
-  for the launcher — per-user, no admin. Matching Uninstall scripts included.
-- Linux: run `install-openwith-linux.sh` (in the app folder or `builds/`).
+- Windows: run `Photopea-portable-OpenWith-Install.bat` (next to the exe) or
+  `builds/Install-OpenWith-Windows.bat` for the launcher — per-user, no admin. Matching Uninstall scripts included.
+- Linux: run `Photopea-AppImage-openwith.sh` (next to the AppImage) or `builds/install-openwith-linux.sh` for the launcher.
 - All apps/launchers also take file arguments: `Photopea.bat a.psd`, `./Photopea a.psd b.png`.
   Files opened while the app runs land in the existing window.
 

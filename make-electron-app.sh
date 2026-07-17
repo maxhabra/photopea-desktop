@@ -6,13 +6,14 @@
 # hurts most on 8-16GB machines). The wasm32 4GB address space per module is baked into
 # Photopea's own binaries and cannot be lifted from outside.
 #
-#   sh make-electron-app.sh              build win32-x64 + linux-x64 packages + zips
+#   sh make-electron-app.sh              build single-file apps for Windows x64 + Linux x64
 #   sh make-electron-app.sh smoke        build src only and run a local smoke test (uses the
 #                                        mac Electron from node_modules; verifies heap + file XHR)
 #
-# Requires: node_modules (npm install) with electron, @electron/packager, png2icons.
-# Produces:  builds/electron-dist/Photopea-win32-x64/   + builds/Photopea-windows-app.zip
-#            builds/electron-dist/Photopea-linux-x64/   + builds/Photopea-linux-app.zip
+# Requires: node_modules (npm install) with electron, electron-builder, png2icons.
+# Produces:  builds/Photopea-portable.exe   single-file Windows app (self-extracts to %TEMP% on run)
+#            builds/Photopea.AppImage       single-file Linux app (chmod +x, run directly)
+#            + Open-With install scripts next to each
 set -e
 cd "$(dirname "$0")"
 
@@ -21,7 +22,7 @@ ICON_SRC="photopea.com/promo/icon512.png"
 SRC="builds/electron-src"
 DIST="builds/electron-dist"
 [ -f "$HTML" ] || { echo "ERROR: $HTML not found — run 'python3 pack.py' first." >&2; exit 1; }
-[ -d node_modules/electron ] || { echo "ERROR: run 'npm install' first (needs electron, @electron/packager, png2icons)." >&2; exit 1; }
+[ -d node_modules/electron ] || { echo "ERROR: run 'npm install' first (needs electron, electron-builder, png2icons)." >&2; exit 1; }
 
 # extensions registered for "Open With" (keep in sync with FILE_EXTS in make-mac-app.sh)
 EXTS="psd psb ai xd fig sketch pdf eps svg png jpg jpeg jfif gif webp avif bmp ico tif tiff tga dds heic exr ppm pgm dng cr2 cr3 nef arw orf rw2 raf srw pef mid midi gp gp3 gp4 gp5 gpx mscz mscx musicxml mxl sf2 sf3"
@@ -37,6 +38,8 @@ cat > "$SRC/package.json" <<'JSON'
   "name": "photopea-offline-desktop",
   "productName": "Photopea",
   "version": "1.0.0",
+  "description": "Offline Photopea / Vectorpea / Jampea",
+  "author": "photopea.com",
   "main": "main.js"
 }
 JSON
@@ -143,35 +146,66 @@ npx png2icons "$SRC/icon.png" "$SRC/icon" -icowe >/dev/null 2>&1 || \
 npx png2icons "$SRC/icon.png" "$SRC/icon" -ico   >/dev/null 2>&1 || \
 echo "WARN: png2icons failed — Windows exe keeps the default Electron icon"
 
-echo "== package (win32-x64, linux-x64) =="
+echo "== package (electron-builder: single-file portable .exe + AppImage) =="
 EVER=$(node -p "require('electron/package.json').version")
+MIME="image/vnd.adobe.photoshop;application/x-photoshop;application/postscript;application/illustrator;application/pdf;image/svg+xml;image/png;image/jpeg;image/gif;image/webp;image/avif;image/bmp;image/vnd.microsoft.icon;image/tiff;image/heif;image/x-tga;image/x-exr;image/x-portable-pixmap;image/x-portable-graymap;image/x-adobe-dng;image/x-canon-cr2;image/x-canon-cr3;image/x-nikon-nef;image/x-sony-arw;image/x-olympus-orf;image/x-panasonic-rw2;image/x-fuji-raf;image/x-samsung-srw;image/x-pentax-pef;audio/midi;audio/x-midi;application/vnd.recordare.musicxml;application/vnd.recordare.musicxml+xml;application/x-musescore;application/octet-stream"
 rm -rf "$DIST"
-npx @electron/packager "$SRC" Photopea \
-  --platform=win32,linux --arch=x64 \
-  --electron-version="$EVER" \
-  --out="$DIST" --overwrite --asar \
-  --icon="$SRC/icon" \
-  --app-copyright="photopea.com" >/dev/null
 
-WIN="$DIST/Photopea-win32-x64"
-LIN="$DIST/Photopea-linux-x64"
-[ -f "$WIN/Photopea.exe" ] || { echo "ERROR: Windows package missing." >&2; exit 1; }
-[ -f "$LIN/Photopea" ]     || { echo "ERROR: Linux package missing." >&2; exit 1; }
+cat > "$SRC/electron-builder.yml" <<YML
+appId: com.photopea.offline
+productName: Photopea
+copyright: photopea.com
+electronVersion: "$EVER"
+npmRebuild: false
+directories:
+  output: ../electron-dist
+files:
+  - package.json
+  - main.js
+  - app.html
+  - icon.png
+win:
+  target: portable
+  icon: icon.ico
+portable:
+  artifactName: Photopea-portable.exe
+linux:
+  target: AppImage
+  icon: icon.png
+  category: Graphics
+  synopsis: Offline Photopea / Vectorpea / Jampea
+  mimeTypes: [$(echo "$MIME" | sed 's/;/, /g')]
+appImage:
+  artifactName: Photopea.AppImage
+YML
+
+npx electron-builder --win --linux --x64 \
+  --project "$SRC" --config electron-builder.yml --publish never
+
+EXE="$DIST/Photopea-portable.exe"
+APPIMG="$DIST/Photopea.AppImage"
+[ -f "$EXE" ]    || { echo "ERROR: Windows portable exe missing." >&2; exit 1; }
+[ -f "$APPIMG" ] || { echo "ERROR: Linux AppImage missing." >&2; exit 1; }
+cp "$EXE" builds/Photopea-portable.exe
+cp "$APPIMG" builds/Photopea.AppImage
+chmod +x builds/Photopea.AppImage
 
 # ---------- Windows: per-user "Open With" registration (no admin) ----------
+# Must sit in the same folder as Photopea-portable.exe when run.
 {
   printf '@echo off\r\n'
-  printf 'rem Registers this Photopea app in the "Open With" menu for design/image files (current user).\r\n'
+  printf 'rem Registers Photopea-portable.exe (same folder) in the "Open With" menu for design/image files (current user).\r\n'
   printf 'setlocal\r\n'
+  printf 'if not exist "%%~dp0Photopea-portable.exe" echo Photopea-portable.exe not found next to this script. && pause && exit /b 1\r\n'
   printf 'reg add "HKCU\\Software\\Classes\\PhotopeaOffline.App" /ve /t REG_SZ /d "Photopea Offline" /f >nul\r\n'
-  printf 'reg add "HKCU\\Software\\Classes\\PhotopeaOffline.App\\DefaultIcon" /ve /t REG_SZ /d "\\"%%~dp0Photopea.exe\\",0" /f >nul\r\n'
-  printf 'reg add "HKCU\\Software\\Classes\\PhotopeaOffline.App\\shell\\open\\command" /ve /t REG_SZ /d "\\"%%~dp0Photopea.exe\\" \\"%%%%1\\"" /f >nul\r\n'
+  printf 'reg add "HKCU\\Software\\Classes\\PhotopeaOffline.App\\DefaultIcon" /ve /t REG_SZ /d "\\"%%~dp0Photopea-portable.exe\\",0" /f >nul\r\n'
+  printf 'reg add "HKCU\\Software\\Classes\\PhotopeaOffline.App\\shell\\open\\command" /ve /t REG_SZ /d "\\"%%~dp0Photopea-portable.exe\\" \\"%%%%1\\"" /f >nul\r\n'
   for e in $EXTS; do
     printf 'reg add "HKCU\\Software\\Classes\\.%s\\OpenWithProgids" /v PhotopeaOffline.App /t REG_NONE /f >nul\r\n' "$e"
   done
   printf 'echo Done. Right-click a PSD/image ^> Open With ^> Photopea Offline.\r\n'
   printf 'pause\r\n'
-} > "$WIN/Install-OpenWith.bat"
+} > builds/Photopea-portable-OpenWith-Install.bat
 {
   printf '@echo off\r\n'
   printf 'rem Removes the Photopea Offline "Open With" association (current user).\r\n'
@@ -181,53 +215,40 @@ LIN="$DIST/Photopea-linux-x64"
   done
   printf 'echo Removed.\r\n'
   printf 'pause\r\n'
-} > "$WIN/Uninstall-OpenWith.bat"
+} > builds/Photopea-portable-OpenWith-Uninstall.bat
 
-# ---------- Linux: menu entry + "Open With" (generates .desktop with absolute paths) ----------
-MIME="image/vnd.adobe.photoshop;application/x-photoshop;application/postscript;application/illustrator;application/pdf;image/svg+xml;image/png;image/jpeg;image/gif;image/webp;image/avif;image/bmp;image/vnd.microsoft.icon;image/tiff;image/heif;image/x-tga;image/x-exr;image/x-portable-pixmap;image/x-portable-graymap;image/x-adobe-dng;image/x-canon-cr2;image/x-canon-cr3;image/x-nikon-nef;image/x-sony-arw;image/x-olympus-orf;image/x-panasonic-rw2;image/x-fuji-raf;image/x-samsung-srw;image/x-pentax-pef;audio/midi;audio/x-midi;application/vnd.recordare.musicxml;application/vnd.recordare.musicxml+xml;application/x-musescore;application/octet-stream;"
-cp "$ICON_SRC" "$LIN/photopea-icon.png"
-cat > "$LIN/install-openwith-linux.sh" <<SH
+# ---------- Linux: menu entry + "Open With" for the AppImage ----------
+cat > builds/Photopea-AppImage-openwith.sh <<SH
 #!/bin/sh
-# Installs a menu entry + "Open With" association for this Photopea app (current user).
+# Installs a menu entry + "Open With" association for Photopea.AppImage (same folder, current user).
 DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+[ -f "\$DIR/Photopea.AppImage" ] || { echo "Photopea.AppImage not found next to this script." >&2; exit 1; }
+chmod +x "\$DIR/Photopea.AppImage"
 APPS="\${XDG_DATA_HOME:-\$HOME/.local/share}/applications"
-mkdir -p "\$APPS"
+ICONS="\${XDG_DATA_HOME:-\$HOME/.local/share}/icons"
+mkdir -p "\$APPS" "\$ICONS"
+TMP="\$(mktemp -d)"
+( cd "\$TMP" && "\$DIR/Photopea.AppImage" --appimage-extract "*.png" >/dev/null 2>&1 )
+ICON_FILE="\$(find "\$TMP/squashfs-root" -name '*.png' -type f 2>/dev/null | head -1)"
+[ -n "\$ICON_FILE" ] && cp "\$ICON_FILE" "\$ICONS/photopea.png"
+rm -rf "\$TMP"
 cat > "\$APPS/Photopea.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=Photopea
 Comment=Offline Photopea / Vectorpea / Jampea
-Exec=\$DIR/Photopea %F
-Icon=\$DIR/photopea-icon.png
+Exec=\$DIR/Photopea.AppImage %F
+Icon=\$ICONS/photopea.png
 Terminal=false
 Categories=Graphics;Photography;
-MimeType=$MIME
+MimeType=$MIME;
 DESKTOP
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "\$APPS"
 echo "Installed. Right-click a PSD/image -> Open With -> Photopea."
 echo "Uninstall: rm '\$APPS/Photopea.desktop'"
 SH
-chmod +x "$LIN/install-openwith-linux.sh" "$LIN/Photopea" 2>/dev/null || true
-
-cat > "$WIN/README.txt" <<'TXT'
-Photopea Offline (standalone, no Chrome needed)
-  - Run Photopea.exe. Big-file friendly: the memory ceiling is raised to ~80% of your RAM
-    (override: set PHOTOPEA_MAX_RAM_MB=16384 before launching).
-  - Install-OpenWith.bat adds "Open With > Photopea Offline" for PSD/images (per-user, no admin).
-  - Files opened while the app is running are sent to the existing window.
-TXT
-cat > "$LIN/README.txt" <<'TXT'
-Photopea Offline (standalone, no Chrome needed)
-  - Run ./Photopea. Big-file friendly: the memory ceiling is raised to ~80% of your RAM
-    (override: PHOTOPEA_MAX_RAM_MB=16384 ./Photopea).
-  - ./install-openwith-linux.sh adds a menu entry + "Open With" for PSD/images (per-user).
-  - Files opened while the app is running are sent to the existing window.
-TXT
-
-echo "== zip =="
-/usr/bin/ditto -c -k --norsrc --keepParent "$WIN" builds/Photopea-windows-app.zip
-/usr/bin/ditto -c -k --norsrc --keepParent "$LIN" builds/Photopea-linux-app.zip
+chmod +x builds/Photopea-AppImage-openwith.sh
 
 echo "Done:"
-echo "  $WIN  -> builds/Photopea-windows-app.zip"
-echo "  $LIN  -> builds/Photopea-linux-app.zip"
+echo "  builds/Photopea-portable.exe   (single file; Open With: builds/Photopea-portable-OpenWith-Install.bat)"
+echo "  builds/Photopea.AppImage       (single file; Open With: builds/Photopea-AppImage-openwith.sh)"

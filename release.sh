@@ -53,8 +53,18 @@ cp builds/Photopea.bat builds/Install-OpenWith-Windows.bat builds/Uninstall-Open
 cp builds/photopea.sh builds/Photopea.desktop builds/install-openwith-linux.sh builds/photopea-icon.png builds/photopea-offline.html "$REL/_l/"; /usr/bin/ditto -c -k "$REL/_l" "$REL/Photopea-linux.zip"
 rm -rf "$REL/_w" "$REL/_l"
 EXTRA_ASSETS=""
-[ -f builds/Photopea-windows-app.zip ] && { cp builds/Photopea-windows-app.zip "$REL/"; EXTRA_ASSETS="$EXTRA_ASSETS $REL/Photopea-windows-app.zip"; }
-[ -f builds/Photopea-linux-app.zip ]   && { cp builds/Photopea-linux-app.zip "$REL/";   EXTRA_ASSETS="$EXTRA_ASSETS $REL/Photopea-linux-app.zip"; }
+[ -f builds/Photopea-portable.exe ] && {
+  mkdir -p "$REL/_wa"
+  cp builds/Photopea-portable.exe builds/Photopea-portable-OpenWith-Install.bat builds/Photopea-portable-OpenWith-Uninstall.bat "$REL/_wa/"
+  /usr/bin/ditto -c -k "$REL/_wa" "$REL/Photopea-windows-app.zip"; rm -rf "$REL/_wa"
+  EXTRA_ASSETS="$EXTRA_ASSETS $REL/Photopea-windows-app.zip"
+}
+[ -f builds/Photopea.AppImage ] && {
+  mkdir -p "$REL/_la"
+  cp builds/Photopea.AppImage builds/Photopea-AppImage-openwith.sh "$REL/_la/"
+  /usr/bin/ditto -c -k "$REL/_la" "$REL/Photopea-linux-app.zip"; rm -rf "$REL/_la"
+  EXTRA_ASSETS="$EXTRA_ASSETS $REL/Photopea-linux-app.zip"
+}
 
 echo "== 3/4 verify macOS app =="
 spctl -a -vv builds/Photopea.app 2>&1 | head -2 || true
@@ -65,7 +75,7 @@ gh release create "$VERSION" \
   --repo "$REPO" --title "Photopea Desktop $VERSION" \
   --notes "Offline Photopea / Vectorpea / Jampea (top-bar toggle), all 50 UI languages bundled. Private release, internal use.
 
-Assets: photopea-offline.html (single file, any browser) · Photopea-macos.zip (native app) · Photopea-windows.zip (Photopea.bat + html) · Photopea-linux.zip (photopea.sh + .desktop + html) · Photopea-windows-app.zip / Photopea-linux-app.zip (standalone Electron apps, no Chrome needed, raised memory ceiling)."
+Assets: photopea-offline.html (single file, any browser) · Photopea-macos.zip (native app) · Photopea-windows.zip (Photopea.bat + html) · Photopea-linux.zip (photopea.sh + .desktop + html) · Photopea-windows-app.zip (single-file Photopea-portable.exe) / Photopea-linux-app.zip (single-file Photopea.AppImage) — standalone Electron apps, no Chrome needed, raised memory ceiling."
 
 rm -rf "$REL"
 echo "Done: https://github.com/$REPO/releases/tag/$VERSION"
