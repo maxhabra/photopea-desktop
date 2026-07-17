@@ -1,124 +1,74 @@
 # Photopea Offline
 
-A fully offline build of [Photopea](https://www.photopea.com). **One app, three tools** —
-switch between them from the toggle at the top-right:
+A fully offline build of [Photopea](https://www.photopea.com) — **three tools in one app**,
+no internet, no ads, no server. Switch between them from the toggle at the top-right:
 
-- **Photopea** — photo/image editor, a free alternative to Adobe Photoshop (PSD, layers,
-  filters, RAW, …)
-- **Vectorpea** — vector graphics editor, a free alternative to Illustrator (AI, SVG, PDF)
+- **Photopea** — photo/image editor (a free Photoshop alternative: PSD, layers, filters, RAW…)
+- **Vectorpea** — vector editor (a free Illustrator alternative: AI, SVG, PDF)
 - **Jampea** — music/MIDI editor with piano-roll and sheet views
 
-No internet, no server. All 50 UI languages bundled; everything reproducible from a fresh
-photopea.com download via the scripts here.
+All 50 interface languages are bundled.
 
 ![Photopea Offline](docs/screenshot.png)
 
-## What's different vs photopea.com
+## Download & run
 
-- **Fully offline** — one self-contained HTML file (or native apps), no internet, no ads.
-- **Higher memory ceiling** — the standalone Windows/Linux (Electron) apps run Photopea in a
-  dedicated process with the V8 heap raised to ~80% of machine RAM, instead of a Chrome tab
-  that gets OOM-killed (helps most on 8–16GB machines).
-- **Low-RAM mode for big PSDs** — large files open as a downscaled proxy built by a lazy,
-  strip-decoding PSD reader (never holds the whole file or a full-res layer in memory: peak RAM
-  on a 2GB PSD drops from ~4.4GB to ~1.9GB). The active layer escalates to full resolution
-  on demand, and hidden layers aren't decoded until you toggle them on. Toggle it via
-  **More → Enable Low RAM Mode** (default on; defaults to off on machines with ≥ 23 GB RAM
-  in the mac/Electron apps — when off, big PSDs load at full resolution from the start).
+Grab the latest [release](https://github.com/ptrinh/photopea-desktop/releases) and pick your platform:
 
-  ![Low RAM Mode](docs/low-ram-mode.png)
-- **Bounded undo history** — a size-aware history cap; stock Photopea keeps every history state
-  until the tab reloads, which alone can eat many GB during a long session.
-- **OS integration** — "Open With" file associations, file arguments, single-instance window,
-  plus a headless CLI for batch conversion. Details on the RAM work: `performance.md`.
-
-## Build
-
-```sh
-git clone https://github.com/ptrinh/photopea-desktop.git
-cd photopea-desktop
-npm install
-
-# 1) put a local copy of the Photopea site into ./photopea.com/
-#    (for Jampea sound, include rsrc/sf2/MagicSF.zip — pack.py warns if it's missing)
-# 2) build:
-sh refresh.sh                # apply the offline patches (details: refresh.md)
-python3 pack.py              # -> builds/photopea-offline.html (single file)
-sh make-mac-app.sh           # -> builds/Photopea.app                      (macOS, optional)
-sh make-launchers.sh         # -> Photopea.bat / photopea.sh launchers     (optional)
-sh make-electron-app.sh      # -> standalone Windows/Linux apps            (optional)
-```
-
-Tests: `sh test.sh` (headless checks) · `sh test-app.sh` (native app opens).
-`refresh.sh --reset` rebuilds the patched bundle cleanly from `.orig` backups.
-
-## Ways to use it
-
-**1. Single file** — open `builds/photopea-offline.html` in any modern browser, even by
-double-click (`file://`). Switch Photopea / Vectorpea / Jampea from the top-right toggle;
-UI language follows the system (change under **More**).
-
-**2. Desktop apps**
-
-| Platform | What | Notes |
+| Platform | Download | How to run |
 |---|---|---|
-| macOS | `Photopea.app` | native WKWebView, signed + notarized — opens on any Mac |
-| Windows | `Photopea-portable.exe` | single file, standalone (Electron), no Chrome needed |
-| Linux | `Photopea.AppImage` | single file — `chmod +x` and run; standalone (Electron) |
-| any | `Photopea.bat` / `photopea.sh` | tiny launchers — open the HTML in an installed Chrome/Edge app window |
+| **macOS** | `Photopea-macos.zip` | unzip, open `Photopea.app` (signed — opens on any Mac) |
+| **Windows** | `Photopea-windows-app.zip` | run `Photopea-portable.exe` (one file, nothing to install) |
+| **Linux** | `Photopea-linux-app.zip` | `chmod +x Photopea.AppImage` and run it |
+| **Any device** | `photopea-offline.html` | just open the file in any modern browser |
 
-The standalone Windows/Linux apps are the big-file-friendly option (see *What's different*
-above; override the memory ceiling with the `PHOTOPEA_MAX_RAM_MB` env var). They're unsigned —
-Windows SmartScreen asks "More info → Run anyway" once. Note: Photopea's wasm modules are
-32-bit internally (4GB per module) — no wrapper can lift that.
+> **Windows note:** the first time you run the `.exe`, Windows may show "Windows protected your
+> PC" — click **More info → Run anyway**. This happens once (the app is safe, just not
+> code-signed).
 
-**Open With from the OS** (PSD/PSB, AI, XD, Fig, Sketch, PDF, EPS, SVG, images, RAW, plus
-Jampea music formats — MIDI, Guitar Pro, MuseScore, MusicXML, SoundFont):
-- macOS: `Photopea.app` registers automatically (run it once if Finder doesn't list it).
-- Windows: run `Photopea-portable-OpenWith-Install.bat` (next to the exe) or
-  `builds/Install-OpenWith-Windows.bat` for the launcher — per-user, no admin. Matching Uninstall scripts included.
-- Linux: run `Photopea-AppImage-openwith.sh` (next to the AppImage) or `builds/install-openwith-linux.sh` for the launcher.
-- All apps/launchers also take file arguments: `Photopea.bat a.psd`, `./Photopea a.psd b.png`.
-  Files opened while the app runs land in the existing window.
+## Working with big PSD files
 
-**3. Served** — serve the build with any static server, e.g.
-`cd builds && python3 -m http.server 8899 --bind 127.0.0.1` → http://localhost:8899/photopea-offline.html.
-As a secure context this unlocks full **clipboard Paste** and the **Local Fonts** panel (both
-restricted on `file://`; elsewhere use Cmd+V and drag-drop `.ttf/.otf` fonts).
+Big files can eat a lot of memory. Two things help:
 
-## Command line — `cli.js`
+1. **Use the desktop app** (Windows/Linux) rather than the plain HTML file in a browser tab — the
+   app can use much more of your computer's RAM before running out.
+2. **Low RAM Mode** — big PSDs open as a lightweight preview first (full layer list, but lower
+   resolution) so they load fast and light. Pick an editing tool or click the badge to switch to
+   full resolution. Toggle it under **More → Enable Low RAM Mode** (on by default; automatically
+   off on machines with lots of RAM).
 
-Headless batch convert/resize/export (parallel workers, offline, uses Chrome headless):
+![Low RAM Mode](docs/low-ram-mode.png)
 
-```sh
-npm link                     # once -> global `photopea` command (or: node cli.js …)
-photopea photo.psd --to png
-photopea *.psd --to jpg --quality 90 --out exported
-photopea a.png b.webp --to jpg --resize 1024x1024
-photopea shots/*.psd --to webp --concurrency 8
-```
+## Open your files with it
 
-| Option | Meaning |
-|---|---|
-| `--to <fmt>` | output: `png jpg webp gif bmp tiff svg pdf psd ai …` (required) |
-| `--out <dir>` | output directory (default `./out`) |
-| `--resize <WxH>` | e.g. `1920x1080`; `512x` / `x512` keeps aspect |
-| `--quality <0-100>` | for jpg/webp (default 90) |
-| `--concurrency <N>` | parallel workers (default: CPU cores) |
-| `--script "<js>"` | extra Photopea script per file (advanced) |
-| `--html` / `--chrome` | paths to the build / the browser (auto-detected) |
+Double-click a file in your OS to open it in Photopea (PSD/PSB, AI, XD, Fig, Sketch, PDF, EPS,
+SVG, images, RAW, and Jampea music formats — MIDI, Guitar Pro, MuseScore, MusicXML, SoundFont):
 
-Throughput tip: the ~7s Photopea boot is paid once per worker, so batch many files per run.
-For plain raster conversions, native tools (sharp/libvips, ImageMagick) are 10–100× faster —
-use this CLI for layered/vector formats (PSD, AI, XD, Sketch, FIG). `convert-smart` does the
-routing automatically: raster → sharp, layered → Photopea (same options).
+- **macOS** — `Photopea.app` registers automatically (run it once if Finder doesn't list it yet).
+- **Windows** — run `Photopea-portable-OpenWith-Install.bat` (next to the exe). No admin needed;
+  an uninstall script is included.
+- **Linux** — run `Photopea-AppImage-openwith.sh` (next to the AppImage).
 
-## Notes & limits
+Files you open while the app is already running open in the same window.
 
-- Clipboard Paste and Local Fonts need the served version (secure context) — see above.
-- Jampea music playback and MIDI input work offline, including in the native macOS app
-  (WebKit/Safari) and the Electron apps. Sound needs the MagicSF soundfont bundled at build
-  time (see Build above) — pack.py warns if it's missing, in which case the editor still works
-  but plays no sound.
-- Needs a modern browser with `DecompressionStream` (Chrome/Edge, Safari 16.4+, Firefox 113+).
-  The macOS app needs Xcode CLT to build; `cli.js` needs Chrome; the Electron apps need `npm install`.
+## Good to know
+
+- **Clipboard paste & custom fonts:** on the plain HTML file, use **Cmd/Ctrl+V** to paste and
+  drag-and-drop `.ttf`/`.otf` files to add fonts. (The full clipboard and font panel only unlock
+  when the app is served over `http://localhost` — see below.)
+- **Jampea sound:** music playback and MIDI input work offline, including in the desktop apps.
+- **Browser:** needs a modern browser — Chrome/Edge, Safari 16.4+, or Firefox 113+.
+
+## Other ways to use it
+
+- **Launchers** (`Photopea-windows.zip` / `Photopea-linux.zip`) — tiny `Photopea.bat` /
+  `photopea.sh` scripts that open the HTML in an already-installed Chrome or Edge window.
+- **Served** — host the HTML with any static server, e.g.
+  `python3 -m http.server 8899 --bind 127.0.0.1`, then open
+  http://localhost:8899/photopea-offline.html. This unlocks full clipboard paste and the local
+  fonts panel.
+
+---
+
+Building from source, the command-line batch tool, and how the offline patch works are all in
+[DEVELOPING.md](DEVELOPING.md).
