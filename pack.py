@@ -58,6 +58,14 @@ def raw_dense(path): return dense(open(path, "rb").read())
 print("Compressing bundles (css/ext/dbs/pp)...")
 blocks = [("_c", gz_dense(CSS)), ("_e", gz_dense(EXT)), ("_d", gz_dense(DBS)), ("_p", gz_dense(BUNDLE))]
 
+# Ogg Vorbis wasm decoder (MIT) - decodeAudioData fallback for WebKit, which can't decode the
+# Vorbis-compressed samples inside Jampea's soundfont (silent playback in the mac app / Safari).
+_OV = os.path.join(ROOT, "vendor", "ogg-vorbis-decoder.min.js")
+if os.path.exists(_OV):
+    blocks.append(("_ov", gz_dense(_OV)))
+else:
+    print("WARNING: vendor/ogg-vorbis-decoder.min.js missing - Jampea sound won't work in Safari/WKWebView.")
+
 ASSET_FILES = {   # served raw (already-compressed) via data: URL, dense-encoded
     "code/ext/fribidi.wasm": "code/ext/fribidi.wasm",
     "code/ext/hb.wasm":      "code/ext/hb.wasm",
@@ -113,7 +121,7 @@ function __isDead(u){ u=String(u); return u.indexOf("papi/")!==-1 || u.indexOf("
   });
   // WebKit creates AudioContexts "suspended" outside a user gesture and never auto-resumes them,
   // so Jampea playback is silent in WKWebView/Safari. Resume any suspended context on a gesture.
-  var __acs=[];
+  var __acs=[]; window.__ppacs=__acs;   // exposed for test tooling (jampea-sound.debug)
   ["AudioContext","webkitAudioContext"].forEach(function(k){
     var O=window[k]; if(!O) return;
     var P=new Proxy(O,{construct:function(t,a){ var c=Reflect.construct(t,a); __acs.push(c); return c; }});
@@ -121,6 +129,59 @@ function __isDead(u){ u=String(u); return u.indexOf("papi/")!==-1 || u.indexOf("
   });
   function __ackick(){ for(var i=0;i<__acs.length;i++){ try{ if(__acs[i].state==="suspended") __acs[i].resume(); }catch(e){} } }
   ["pointerdown","mousedown","keydown","touchend"].forEach(function(ev){ window.addEventListener(ev,__ackick,true); });
+  // WebKit on file:// denies audioWorklet.addModule(blob:) as cross-origin (silent Jampea playback);
+  // data: module URLs ARE accepted - refetch the blob and retry as a data: URL.
+  if(window.AudioWorklet && AudioWorklet.prototype.addModule){
+    var __am=AudioWorklet.prototype.addModule;
+    AudioWorklet.prototype.addModule=function(u,o){ var s=this,a=arguments;
+      return __am.apply(s,a).catch(function(err){
+        if(String(u).lastIndexOf("blob:",0)!==0) throw err;
+        return fetch(u).then(function(r){ return r.text(); }).then(function(code){
+          return __am.call(s,"data:application/javascript;charset=utf-8,"+encodeURIComponent(code),o);
+        });
+      });
+    };
+  }
+  // WebKit can't decode Ogg Vorbis via decodeAudioData (Jampea's soundfont samples) - when the
+  // native decoder rejects an "OggS" buffer, decode it with the bundled wasm decoder instead.
+  var __ovP=null;
+  function __ovLib(){
+    if(!__ovP) __ovP=__ungz("_ov").then(function(code){ __run(code); return globalThis["ogg-vorbis-decoder"]; });
+    return __ovP;
+  }
+  window.__ovlog=[];
+  function __ovDecode(buf,rate){ __ovlog.push("decode len="+buf.byteLength+" rate="+rate); return __ovLib().then(function(OV){
+    var d=new OV.OggVorbisDecoder();
+    return d.ready.then(function(){ __ovlog.push("lib ready"); return d.decodeFile(new Uint8Array(buf)); }).then(function(r){
+      try{ d.free(); }catch(e){}
+      var n=r.samplesDecoded, sr=r.sampleRate, chs=r.channelData;
+      __ovlog.push("decoded n="+n+" sr="+sr+" ch="+(chs&&chs.length));
+      if(!n||!chs||!chs.length) throw new Error("vorbis: no samples");
+      var m=(sr===rate)?n:Math.floor(n*rate/sr);
+      var ab=new AudioBuffer({numberOfChannels:chs.length,length:m,sampleRate:rate});
+      for(var c=0;c<chs.length;c++){ var src=chs[c];
+        if(sr===rate){ ab.copyToChannel(src,c); }
+        else{ var dst=ab.getChannelData(c),k=sr/rate;
+          for(var i=0;i<m;i++){ var x=i*k,j=x|0,f=x-j,v1=src[j],v2=(j+1<n)?src[j+1]:v1; dst[i]=v1+(v2-v1)*f; } } }
+      return ab;
+    });
+  }); }
+  if(window.BaseAudioContext && BaseAudioContext.prototype.decodeAudioData){
+    var __odad=BaseAudioContext.prototype.decodeAudioData;
+    BaseAudioContext.prototype.decodeAudioData=function(buf,ok,err){
+      var ctx=this,keep=null;
+      try{ var u=new Uint8Array(buf,0,4); if(u[0]===79&&u[1]===103&&u[2]===103&&u[3]===83) keep=buf.slice(0); }catch(e){}
+      var P=new Promise(function(res,rej){
+        var NP=__odad.call(ctx,buf,res,function(e){
+          if(!keep){ __ovlog.push("native fail, not ogg"); return rej(e); }
+          __ovDecode(keep,ctx.sampleRate).then(res,function(e2){ __ovlog.push("fallback fail: "+e2); rej(e); });
+        });
+        if(NP&&NP.catch) NP.catch(function(){});   // native's own promise also rejects on failure
+      });
+      if(ok||err) P.then(ok||function(){},err||function(){});
+      return P;
+    };
+  }
 })();
 function __bytesToB64(u8){ var s="",CH=0x8000; for(var i=0;i<u8.length;i+=CH){ s+=String.fromCharCode.apply(null,u8.subarray(i,i+CH)); } return btoa(s); }
 async function __ungz(id){

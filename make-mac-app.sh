@@ -116,6 +116,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        // Debug REPL (env-gated, not active in normal runs): PP_DEBUG=/dir polls dir/in.js,
+        // evaluates it in the page, appends results to dir/out.log. Used by test tooling.
+        if let dir = ProcessInfo.processInfo.environment["PP_DEBUG"] {
+            let inPath = dir + "/in.js", outPath = dir + "/out.log"
+            FileManager.default.createFile(atPath: outPath, contents: nil)
+            Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
+                guard let js = try? String(contentsOfFile: inPath, encoding: .utf8),
+                      !js.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                try? "".write(toFile: inPath, atomically: true, encoding: .utf8)
+                self.web.evaluateJavaScript(js) { res, err in
+                    let line = "RESULT \(res.map { String(describing: \$0) } ?? "nil") | ERR \(err.map { String(describing: \$0) } ?? "none")\n"
+                    if let h = FileHandle(forWritingAtPath: outPath), let d = line.data(using: .utf8) {
+                        h.seekToEndOfFile(); h.write(d); h.closeFile()
+                    }
+                }
+            }
+        }
     }
     // WKWebView silently drops alert()/confirm()/prompt() unless the UI delegate shows them.
     // Photopea relies on confirm() ("unsaved work" on tab close) and alert() heavily.
