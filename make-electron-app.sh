@@ -117,6 +117,13 @@ if (!app.requestSingleInstanceLock()) {
       autoHideMenuBar: true,
     });
     win.removeMenu();
+    // Jampea "Input" menu: grant Web MIDI, and auto-pick the first device for Web Bluetooth
+    // (Electron has no built-in chooser UI for navigator.bluetooth.requestDevice).
+    win.webContents.session.setPermissionRequestHandler((wc, permission, cb) => cb(true));
+    win.webContents.on('select-bluetooth-device', (e, devices, cb) => {
+      e.preventDefault();
+      if (devices.length) cb(devices[0].deviceId);
+    });
     win.webContents.setWindowOpenHandler(({ url }) => {
       if (/^https?:/.test(url)) shell.openExternal(url);
       return { action: 'deny' };

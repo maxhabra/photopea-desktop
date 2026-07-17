@@ -38,12 +38,67 @@ cp "$HTML" "$APP/Contents/Resources/app.html"
 cat > main.swift <<SWIFT
 import Cocoa
 import WebKit
+import CoreMIDI
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
     var pageReady = false
     var pendingFiles: [URL] = []
+    var midiClient = MIDIClientRef()
+    var midiPort = MIDIPortRef()
+    var midiStarted = false
+
+    // ---- Web MIDI polyfill backend (WKWebView has no navigator.requestMIDIAccess) ----------
+    // JS side (injected as a user script) posts "start" on webkit.messageHandlers.midi; we
+    // connect every CoreMIDI source (USB and system-paired Bluetooth MIDI) and forward packets.
+    func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "midi" { startMIDI() }
+    }
+    func startMIDI() {
+        if !midiStarted {
+            midiStarted = true
+            MIDIClientCreateWithBlock("PhotopeaMIDI" as CFString, &midiClient) { [weak self] _ in
+                DispatchQueue.main.async { self?.connectAllSources() }   // device list changed
+            }
+            MIDIInputPortCreateWithBlock(midiClient, "in" as CFString, &midiPort) { [weak self] pktList, srcRef in
+                var events: [(Int, [UInt8])] = []
+                let idx = Int(bitPattern: srcRef)
+                withUnsafePointer(to: pktList.pointee.packet) { firstPkt in
+                    var p = firstPkt
+                    for _ in 0..<pktList.pointee.numPackets {
+                        let len = Int(p.pointee.length)
+                        var data = p.pointee.data
+                        let bytes = withUnsafeBytes(of: &data) { raw in [UInt8](raw.prefix(len)) }
+                        events.append((idx, bytes))
+                        p = UnsafePointer(MIDIPacketNext(p))
+                    }
+                }
+                DispatchQueue.main.async {
+                    guard let web = self?.web else { return }
+                    for (i, bytes) in events {
+                        let arr = bytes.map { String(\$0) }.joined(separator: ",")
+                        web.evaluateJavaScript("window.__midiRecv(\(i),[\(arr)]);", completionHandler: nil)
+                    }
+                }
+            }
+        }
+        connectAllSources()
+    }
+    func connectAllSources() {
+        let n = MIDIGetNumberOfSources()
+        var names: [String] = []
+        for i in 0..<n {
+            let src = MIDIGetSource(i)
+            var cf: Unmanaged<CFString>?
+            MIDIObjectGetStringProperty(src, kMIDIPropertyDisplayName, &cf)
+            names.append((cf?.takeRetainedValue() as String?) ?? "MIDI device \(i+1)")
+            MIDIPortDisconnectSource(midiPort, src)
+            MIDIPortConnectSource(midiPort, src, UnsafeMutableRawPointer(bitPattern: i + 1))
+        }
+        let json = (try? String(data: JSONEncoder().encode(names), encoding: .utf8) ?? "[]") ?? "[]"
+        web.evaluateJavaScript("window.__midiReady(\(json));", completionHandler: nil)
+    }
 
     // Files opened via Finder ("Open With" / double-click). May fire before or after launch.
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -100,6 +155,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let cfg = WKWebViewConfiguration()
         cfg.preferences.javaScriptCanOpenWindowsAutomatically = true
         cfg.mediaTypesRequiringUserActionForPlayback = []   // Jampea: allow audio without a media gesture
+        // Web MIDI polyfill bridged to CoreMIDI (Input > MIDI Device in Jampea). Bluetooth MIDI
+        // pairs at the OS level (Audio MIDI Setup) and then shows up as a regular CoreMIDI source.
+        cfg.userContentController.add(self, name: "midi")
+        let midiJS = """
+        (function(){
+          if (navigator.requestMIDIAccess) return;
+          var access=null, inputs=[], resolvers=[];
+          window.__midiReady=function(names){
+            if(!access) return;
+            inputs.length=0; var map=new Map();
+            for(var i=0;i<names.length;i++){
+              var inp={id:"cm"+i,name:names[i],manufacturer:"",state:"connected",connection:"open",type:"input",onmidimessage:null};
+              inputs.push(inp); map.set(inp.id,inp);
+            }
+            access.inputs=map;
+            var rs=resolvers; resolvers=[];
+            for(var j=0;j<rs.length;j++) rs[j](access);
+            if(access.onstatechange) try{ access.onstatechange({port:inputs[0]}); }catch(e){}
+          };
+          window.__midiRecv=function(i,bytes){
+            var inp=inputs[i-1];
+            if(inp&&inp.onmidimessage) try{ inp.onmidimessage({data:new Uint8Array(bytes)}); }catch(e){}
+          };
+          navigator.requestMIDIAccess=function(){
+            access=access||{inputs:new Map(),outputs:new Map(),onstatechange:null,sysexEnabled:false};
+            return new Promise(function(res){ resolvers.push(res); window.webkit.messageHandlers.midi.postMessage("start"); });
+          };
+          if(!navigator.bluetooth) navigator.bluetooth={ requestDevice:function(){
+            alert("Bluetooth MIDI: pair the device at the macOS level first - open Audio MIDI Setup > Window > Show MIDI Studio > Bluetooth, connect it there, then use Input > MIDI Device here.");
+            return new Promise(function(){});
+          }};
+        })();
+        """
+        cfg.userContentController.addUserScript(WKUserScript(source: midiJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let frame = NSRect(x: 0, y: 0, width: 1440, height: 900)
         window = NSWindow(contentRect: frame,
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -186,7 +275,7 @@ app.run()
 SWIFT
 
 echo "Compiling..."
-swiftc -O -o "$APP/Contents/MacOS/Photopea" main.swift -framework Cocoa -framework WebKit
+swiftc -O -o "$APP/Contents/MacOS/Photopea" main.swift -framework Cocoa -framework WebKit -framework CoreMIDI
 rm -f main.swift
 
 VER=$(date +%s)
