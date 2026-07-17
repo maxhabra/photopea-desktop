@@ -104,6 +104,11 @@ s = patch(s, "File->Open goes native",
           'if(F!=!0&&$!=!0&&this.GM("open"))return;',
           'if(F!=!0&&$!=!0&&false)return;')
 
+print("\n[2d] lower default History states to cut RAM on big files (j1=general, HH=large-doc; each undo step keeps pixel data in RAM). Users can still change these in Edit -> Settings.")
+s = patch(s, "fewer history states (RAM)",
+          'j1:20,HH:0',
+          'j1:12,HH:4')
+
 print("\n[3] hide unwanted UI")
 s = patch(s, "hide Home sidebar",
           'if(this.xL){U=[[[1,19,3],null,"strg/home"]].concat(U.concat(jv.WW));',
