@@ -69,9 +69,10 @@ Windows SmartScreen asks "More info → Run anyway" once. Note: Photopea's wasm 
 - All apps/launchers also take file arguments: `Photopea.bat a.psd`, `./Photopea a.psd b.png`.
   Files opened while the app runs land in the existing window.
 
-**3. Served** — `sh photopea.com/start.sh` → http://localhost:8899/. As a secure context this
-unlocks full **clipboard Paste** and the **Local Fonts** panel (both restricted on `file://`;
-elsewhere use Cmd+V and drag-drop `.ttf/.otf` fonts).
+**3. Served** — serve the build with any static server, e.g.
+`cd builds && python3 -m http.server 8899 --bind 127.0.0.1` → http://localhost:8899/photopea-offline.html.
+As a secure context this unlocks full **clipboard Paste** and the **Local Fonts** panel (both
+restricted on `file://`; elsewhere use Cmd+V and drag-drop `.ttf/.otf` fonts).
 
 ## Command line — `cli.js`
 
