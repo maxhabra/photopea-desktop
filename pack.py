@@ -144,28 +144,54 @@ function __isDead(u){ u=String(u); return u.indexOf("papi/")!==-1 || u.indexOf("
   }
   // WebKit can't decode Ogg Vorbis via decodeAudioData (Jampea's soundfont samples) - when the
   // native decoder rejects an "OggS" buffer, decode it with the bundled wasm decoder instead.
+  // The wasm decode blocks the main thread for a few seconds (WebKit workers OOM-crash on a
+  // file this big, and the lib's chunked API is pathologically slow), so the decoded PCM is
+  // cached as Int16 in IndexedDB: the freeze happens once per machine, later opens are instant.
   var __ovP=null;
   function __ovLib(){
     if(!__ovP) __ovP=__ungz("_ov").then(function(code){ __run(code); return globalThis["ogg-vorbis-decoder"]; });
     return __ovP;
   }
   window.__ovlog=[];
-  function __ovDecode(buf,rate){ __ovlog.push("decode len="+buf.byteLength+" rate="+rate); return __ovLib().then(function(OV){
-    var d=new OV.OggVorbisDecoder();
-    return d.ready.then(function(){ __ovlog.push("lib ready"); return d.decodeFile(new Uint8Array(buf)); }).then(function(r){
-      try{ d.free(); }catch(e){}
-      var n=r.samplesDecoded, sr=r.sampleRate, chs=r.channelData;
-      __ovlog.push("decoded n="+n+" sr="+sr+" ch="+(chs&&chs.length));
-      if(!n||!chs||!chs.length) throw new Error("vorbis: no samples");
-      var m=(sr===rate)?n:Math.floor(n*rate/sr);
-      var ab=new AudioBuffer({numberOfChannels:chs.length,length:m,sampleRate:rate});
-      for(var c=0;c<chs.length;c++){ var src=chs[c];
-        if(sr===rate){ ab.copyToChannel(src,c); }
-        else{ var dst=ab.getChannelData(c),k=sr/rate;
-          for(var i=0;i<m;i++){ var x=i*k,j=x|0,f=x-j,v1=src[j],v2=(j+1<n)?src[j+1]:v1; dst[i]=v1+(v2-v1)*f; } } }
-      return ab;
-    });
+  function __idb(){ return new Promise(function(res,rej){
+    var q=indexedDB.open("__pp_pcm",1);
+    q.onupgradeneeded=function(){ q.result.createObjectStore("pcm"); };
+    q.onsuccess=function(){ res(q.result); }; q.onerror=function(){ rej(q.error); };
   }); }
+  function __idbGet(k){ return __idb().then(function(db){ return new Promise(function(res){
+    var t=db.transaction("pcm").objectStore("pcm").get(k);
+    t.onsuccess=function(){ res(t.result||null); }; t.onerror=function(){ res(null); };
+  }); }).catch(function(){ return null; }); }
+  function __idbPut(k,v){ __idb().then(function(db){ db.transaction("pcm","readwrite").objectStore("pcm").put(v,k); }).catch(function(){}); }
+  function __pcmToAB(pcm,n,sr,nch,rate){
+    var m=(sr===rate)?n:Math.floor(n*rate/sr);
+    var ab=new AudioBuffer({numberOfChannels:nch,length:m,sampleRate:rate});
+    for(var c=0;c<nch;c++){ var src=pcm[Math.min(c,pcm.length-1)],dst=ab.getChannelData(c);
+      if(sr===rate){ for(var i=0;i<n;i++) dst[i]=src[i]/32768; }
+      else{ var k=sr/rate;
+        for(var i2=0;i2<m;i2++){ var x=i2*k,j=x|0,f=x-j,v1=src[j],v2=(j+1<n)?src[j+1]:v1; dst[i2]=(v1+(v2-v1)*f)/32768; } } }
+    return ab;
+  }
+  function __ovDecode(buf,rate){
+    var key="sf-"+buf.byteLength+"-"+rate;
+    return __idbGet(key).then(function(rec){
+      if(rec&&rec.n){ __ovlog.push("cache hit n="+rec.n); return __pcmToAB(rec.pcm,rec.n,rec.sr,rec.nch,rate); }
+      __ovlog.push("decode len="+buf.byteLength+" rate="+rate);
+      return __ovLib().then(function(OV){
+        var d=new OV.OggVorbisDecoder();
+        return d.ready.then(function(){ return d.decodeFile(new Uint8Array(buf)); }).then(function(r){
+          try{ d.free(); }catch(e){}
+          var n=r.samplesDecoded, sr=r.sampleRate, chs=r.channelData;
+          __ovlog.push("decoded n="+n+" sr="+sr+" ch="+(chs&&chs.length));
+          if(!n||!chs||!chs.length) throw new Error("vorbis: no samples");
+          var pcm=chs.map(function(c){ var o=new Int16Array(n);
+            for(var i=0;i<n;i++){ var v=c[i]*32768; o[i]=v>32767?32767:(v<-32768?-32768:v); } return o; });
+          __idbPut(key,{n:n,sr:sr,nch:chs.length,pcm:pcm});
+          return __pcmToAB(pcm,n,sr,chs.length,rate);
+        });
+      });
+    });
+  }
   if(window.BaseAudioContext && BaseAudioContext.prototype.decodeAudioData){
     var __odad=BaseAudioContext.prototype.decodeAudioData;
     BaseAudioContext.prototype.decodeAudioData=function(buf,ok,err){
