@@ -25,6 +25,8 @@ photopea.com download via the scripts here.
   on demand, and hidden layers aren't decoded until you toggle them on. Toggle it via
   **More → Enable Low RAM Mode** (default on; defaults to off on machines with ≥ 23 GB RAM
   in the mac/Electron apps — when off, big PSDs load at full resolution from the start).
+
+  ![Low RAM Mode](docs/low-ram-mode.png)
 - **Bounded undo history** — a size-aware history cap; stock Photopea keeps every history state
   until the tab reloads, which alone can eat many GB during a long session.
 - **OS integration** — "Open With" file associations, file arguments, single-instance window,
