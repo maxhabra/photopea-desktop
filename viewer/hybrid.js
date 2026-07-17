@@ -26,6 +26,8 @@ import { parseLazyPsd, readChannelRows } from './lazy-psd.js';
 
 let previewMode = true;      // true until the user escalates for the current doc
 let stashedFile = null;      // the original File/Blob (disk-backed -> cheap; re-read on escalate)
+let stashedMeta = null;      // lazy-psd metadata of the stashed file (per-layer escalation, B1)
+let stashedTree = null;      // proxy layer tree mirroring Photopea's panel, leaves carry records
 
 const isPsd = (name) => /\.ps[db]$/i.test(name || '');
 
@@ -134,7 +136,7 @@ async function bakeMaskStrip(blob, meta, rec, mch, rgba, w, y0, y1) {
   }
 }
 
-async function buildProxyPsdLazy(blob, forceScale) {   // forceScale: diagnostics/tests only
+async function buildProxyLazy(blob, forceScale) {
   const scale = forceScale || scaleForSize(blob.size);
   if (scale >= 1) return null;                                  // <= 800 MB: open the original as-is
   const meta = await parseLazyPsd(blob);
@@ -142,16 +144,22 @@ async function buildProxyPsdLazy(blob, forceScale) {   // forceScale: diagnostic
               (blob.size / 1e9).toFixed(2) + ' GB -> scale', scale, '(lazy)');
   // records are in file order (bottom-to-top) — exactly ag-psd's children order. A group is
   // bracketed by its sectionType-3 divider (before its children) and its header layer (after).
-  const root = { children: [] };
-  const stack = [root];
+  // A parallel nav tree (same shape/order, leaves carry the raw record) is kept for B1.
+  const root = { children: [] }, navRoot = { children: [] };
+  const stack = [root], navStack = [navRoot];
   for (const rec of meta.layers) {
     const common = { name: rec.name, hidden: rec.hidden, opacity: rec.opacity / 255,
                      blendMode: BLEND[rec.blendKey] || 'normal' };
-    if (rec.sectionType === 3) { stack.push({ children: [] }); continue; }
+    if (rec.sectionType === 3) {
+      stack.push({ children: [] }); navStack.push({ children: [] });
+      continue;
+    }
     if (rec.sectionType === 1 || rec.sectionType === 2) {
       const grp = stack.length > 1 ? stack.pop() : { children: [] };
+      const nav = navStack.length > 1 ? navStack.pop() : { children: [] };
       stack[stack.length - 1].children.push(
         { ...common, opened: rec.sectionType === 1, children: grp.children });
+      navStack[navStack.length - 1].children.push({ children: nav.children });
       continue;
     }
     const layer = { ...common, clipping: rec.clipping,
@@ -159,13 +167,20 @@ async function buildProxyPsdLazy(blob, forceScale) {   // forceScale: diagnostic
     const canvas = await lazyLayerCanvas(blob, meta, rec, scale);
     if (canvas) layer.canvas = canvas;
     stack[stack.length - 1].children.push(layer);
+    navStack[navStack.length - 1].children.push({ rec });
   }
   const doc = {
     width: Math.max(1, Math.round(meta.width * scale)),
     height: Math.max(1, Math.round(meta.height * scale)),
     children: root.children,
   };
-  return writePsd(doc, { generateThumbnail: false, invalidateTextLayers: true });
+  const buf = writePsd(doc, { generateThumbnail: false, invalidateTextLayers: true });
+  return { buf, meta, tree: navRoot.children };
+}
+
+async function buildProxyPsdLazy(blob, forceScale) {   // diagnostics/tests: proxy bytes only
+  const r = await buildProxyLazy(blob, forceScale);
+  return r && r.buf;
 }
 
 // ---- whole-buffer fallback (@webtoon/psd; needs the full file + one full-res layer in RAM) ---
@@ -279,17 +294,20 @@ function deliver(fr, buf) {
 
 const origRead = FileReader.prototype.readAsArrayBuffer;
 FileReader.prototype.readAsArrayBuffer = function (blob) {
-  // size decides everything up front — nothing is read here (blob.size is free)
-  if (previewMode && blob && isPsd(blob.name) && scaleForSize(blob.size) < 1) {
+  // size decides everything up front — nothing is read here (blob.size is free).
+  // window.__hybridForceScale (tests/diagnostics) forces the proxy on for small files.
+  const forced = window.__hybridForceScale;
+  if (previewMode && blob && isPsd(blob.name) && (forced || scaleForSize(blob.size) < 1)) {
     const fr = this;
     (async () => {
       let proxy = null;
       try {
-        proxy = await buildProxyPsdLazy(blob);
+        const r = await buildProxyLazy(blob, forced);
+        if (r) { proxy = r.buf; stashedMeta = r.meta; stashedTree = r.tree; }
       } catch (e) {
         console.warn('[hybrid] lazy proxy failed:', e);
         if (blob.size <= FULL_FALLBACK_MAX) {
-          try { proxy = await buildProxyPsd(await blob.arrayBuffer()); }
+          try { proxy = await buildProxyPsd(await blob.arrayBuffer(), forced); }
           catch (e2) { console.error('[hybrid] full proxy failed too:', e2); }
         }
       }
@@ -306,27 +324,105 @@ FileReader.prototype.readAsArrayBuffer = function (blob) {
 async function escalate() {
   if (!stashedFile || !previewMode) return;
   previewMode = false;
-  const file = stashedFile; stashedFile = null;
+  const file = stashedFile; stashedFile = stashedMeta = stashedTree = null;
   hideBadge();
   const ab = await file.arrayBuffer();                       // re-read original from disk
   window.postMessage(ab, '*', [ab]);                         // opens full-res doc; app is NOT reloaded
 }
+
+// ---- per-layer escalation (B1): open the ACTIVE layer as its own full-res document -----------
+//
+// A PSD can't mix resolutions, so the full-res pixels can't be swapped into the downscaled proxy
+// doc. Instead the selected layer is decoded from the stashed file (strip decoding again — RAM is
+// one layer, not the document) and opened as a separate document sized to the LAYER's bounds
+// (sizing it to the full canvas would make Photopea allocate the full-res composite buffer).
+
+// In the single-file build, Photopea scripts run in OUR window's JS context, so a script sent via
+// postMessage can hand results back through a global — no echoToOE round-trip needed.
+function queryActiveLayerPath() {
+  return new Promise((resolve) => {
+    delete window.__hybridALPath;
+    const script =
+      'try{var d=app.activeDocument,n=d.activeLayer,p=[];' +
+      'while(n&&n!=d){var q=n.parent||d,ls=q.layers,i=-1;' +
+      'for(var k=0;k<ls.length;k++)if(ls[k]==n){i=k;break}' +
+      'p.unshift(i);if(q==d)break;n=q}' +
+      'window.__hybridALPath=JSON.stringify(p)}catch(e){window.__hybridALPath="null"}';
+    window.postMessage(script, '*');
+    let waited = 0;
+    const iv = setInterval(() => {
+      if (window.__hybridALPath !== undefined || (waited += 50) > 3000) {
+        clearInterval(iv);
+        try { resolve(JSON.parse(window.__hybridALPath || 'null')); } catch (e) { resolve(null); }
+      }
+    }, 50);
+  });
+}
+
+async function escalateActiveLayer() {
+  if (!stashedFile || !stashedMeta || !stashedTree || !previewMode) return;
+  const path = await queryActiveLayerPath();
+  if (!path || !path.length) { console.warn('[hybrid] could not resolve active layer'); return; }
+  // Photopea's DOM lists layers TOP-first; our tree is bottom-first -> mirror each index
+  let node = { children: stashedTree };
+  for (const i of path) {
+    const C = node.children;
+    if (!C || i < 0 || i >= C.length) { console.warn('[hybrid] layer path mismatch', path); return; }
+    node = C[C.length - 1 - i];
+  }
+  const rec = node.rec;
+  if (!rec) { console.warn('[hybrid] active item is a group — select a pixel layer'); return; }
+  const label = badgeLabel('Extracting "' + rec.name + '" at full resolution…');
+  try {
+    const canvas = await lazyLayerCanvas(stashedFile, stashedMeta, rec, 1);
+    if (!canvas) { console.warn('[hybrid] layer has no pixels:', rec.name); return; }
+    const doc = {
+      width: rec.right - rec.left, height: rec.bottom - rec.top,
+      children: [{ name: rec.name + ' @ full res (' + rec.left + ',' + rec.top + ')',
+                   left: 0, top: 0, canvas }],
+    };
+    const buf = writePsd(doc, { generateThumbnail: false, invalidateTextLayers: true });
+    window.postMessage(buf, '*', [buf]);        // opens as a NEW document; proxy stays open
+  } finally { label.restore(); }
+}
+
 window.__escalate = escalate;
+window.__escalateActiveLayer = escalateActiveLayer;
 window.__buildProxyPsd = buildProxyPsd;           // whole-buffer path (diagnostics/testing)
 window.__buildProxyPsdLazy = buildProxyPsdLazy;   // lazy path (diagnostics/testing)
 window.__countPsdLayers = (ab) => countLayers(Psd.parse(ab).children);
 
 // ---- escalation UI + triggers ----
+function badgeLabel(text) {                        // temporarily swap the badge text
+  const el = document.getElementById('__hybridmain');
+  const old = el ? el.textContent : '';
+  if (el) el.textContent = text;
+  return { restore() { const e = document.getElementById('__hybridmain'); if (e) e.textContent = old; } };
+}
 function showBadge() {
   if (document.getElementById('__hybridbadge')) return;
   const b = document.createElement('div');
   b.id = '__hybridbadge';
-  b.textContent = 'Low-res preview (low RAM) - click for full resolution & editing';
   b.style.cssText = 'position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:2147483647;' +
     'background:#3482f6;color:#fff;font:12px -apple-system,sans-serif;padding:5px 12px;border-radius:14px;' +
     'cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.4);user-select:none';
-  b.title = 'Loads every layer at full resolution for editing (uses more memory)';
-  b.onclick = escalate;
+  const main = document.createElement('span');
+  main.id = '__hybridmain';
+  main.textContent = 'Low-res preview (low RAM) - click for full resolution & editing';
+  main.title = 'Loads every layer at full resolution for editing (uses more memory)';
+  main.onclick = escalate;
+  b.appendChild(main);
+  if (stashedTree) {                               // per-layer needs the lazy metadata
+    const sep = document.createElement('span');
+    sep.textContent = '  |  ';
+    sep.style.opacity = '0.6';
+    const one = document.createElement('span');
+    one.textContent = 'active layer only';
+    one.title = 'Opens just the selected layer at full resolution as its own document (low RAM)';
+    one.style.textDecoration = 'underline';
+    one.onclick = (e) => { e.stopPropagation(); escalateActiveLayer(); };
+    b.appendChild(sep); b.appendChild(one);
+  }
   document.body.appendChild(b);
 }
 function hideBadge() { const b = document.getElementById('__hybridbadge'); if (b) b.remove(); }

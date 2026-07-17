@@ -104,10 +104,17 @@ s = patch(s, "File->Open goes native",
           'if(F!=!0&&$!=!0&&this.GM("open"))return;',
           'if(F!=!0&&$!=!0&&false)return;')
 
-print("\n[2d] lower default History states to cut RAM on big files (j1=general, HH=large-doc; each undo step keeps pixel data in RAM). Users can still change these in Edit -> Settings.")
-s = patch(s, "fewer history states (RAM)",
-          'j1:20,HH:0',
-          'j1:12,HH:4')
+print("\n[2d] size-aware History cap to cut RAM on big files. Photopea keeps up to 20 undo states")
+print("     (40 premium) regardless of document size — on a huge canvas that's GBs of snapshots.")
+print("     Scale the cap by document pixel size: keep as many states as fit a ~1 GB budget")
+print("     (one state costed as a full doc canvas, w*h*4), never fewer than 2, never more than")
+print("     stock. Small docs are unaffected. Tunable at runtime: window.__ppHistBudget = bytes.")
+# dX.prototype.Kj — the history-push trimmer; this = the document (s/T = pixel width/height).
+# id.wr() (premium check) can throw in the offline build, which in STOCK code silently aborts
+# the trimming right here -> history grows unbounded offline. Guard it (fall back to 20).
+s = patch(s, "size-aware history cap (RAM)",
+          'var R=id.wr()?40:20,b=0;',
+          'var R=20,b=0;try{R=id.wr()?40:20}catch(e){}R=Math.max(2,Math.min(R,Math.floor((window.__ppHistBudget||1073741824)/(this.s*this.T*4||1))));window.__ppHistCap=R;')
 
 print("\n[2e] Automate dialogs (Files -> Automate: Batch / Convert / Resize / ...): keep only the")
 print("     'Local' source, drop 'Storage' (the cloud/storage browser doesn't work offline).")

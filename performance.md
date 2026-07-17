@@ -68,13 +68,19 @@ instant, with no 2 GB re-read spike.
 
 ## B. Smarter escalation — avoid ever loading the full doc
 
-Escalation currently re-opens the entire original (`escalate()` posts the full ArrayBuffer),
-reintroducing the exact problem.
+Full escalation re-opens the entire original (`escalate()` posts the full ArrayBuffer),
+reintroducing the exact problem. B1 gives a low-RAM alternative for the common case.
 
-### B1. Per-layer escalation
-On edit-tool pick, swap only the *active layer* to full resolution: decode that one layer from
-the stashed file, replace it via a postMessage script, keep the rest proxied. Most edits touch
-one layer.
+### B1. Per-layer escalation  ✅ (adapted)
+A PSD can't mix resolutions, so full-res pixels can't be swapped *into* the downscaled proxy
+doc (and a full-canvas-sized doc would make Photopea allocate the full-res composite buffer).
+Implemented instead as: the badge (and `__escalateActiveLayer()`) opens the ACTIVE layer as its
+own full-res document, sized to the layer's bounds — decoded from the stashed file with the same
+strip decoding, so RAM is one layer, not the document. The proxy doc stays open in preview mode.
+The layer's original offset is carried in its name (`name @ full res (x,y)`).
+Mechanics: Photopea scripts sent via postMessage run in the page's JS context, so the active
+layer path is read from `app.activeDocument` via a window global; Photopea's DOM lists layers
+top-first while the PSD tree is bottom-first — indices are mirrored per level.
 
 ### B2. Edit-on-proxy, replay-on-original
 Let the user edit the proxy freely; record the operations via Photopea's scripting API; replay
@@ -87,10 +93,22 @@ Open a full-res *crop* of the visible region for pixel-peeping, without full esc
 
 ## C. Patch Photopea itself (via the existing refresh.sh/pack.py patch pipeline)
 
-### C1. Cap / purge undo history
-History states are the main cause of "RAM grows until crash" in long sessions; users have
-requested a cap for years and Photopea never shipped one. Find the history-stack array in the
-minified code and cap its length (drop oldest states). A differentiating offline-build feature.
+### C1. Size-aware history cap  ✅
+Findings from the minified code (`dX.prototype.Kj` is the history-push trimmer):
+- Photopea DOES cap history — 20 states (40 premium) — but independent of document size, so a
+  huge canvas can still hold GBs of undo snapshots.
+- The old refresh.sh patch "fewer history states (j1/HH)" was MISLABELED: `j1`/`HH` are the
+  **grid** settings (`gsize`/`gv`, next to the guide colors). It changed the default grid, not
+  history. Removed.
+- `id.wr()` (premium check) can throw in the offline build, which in stock code aborts the trim
+  loop → unbounded history offline. The patch guards it.
+
+The new patch scales the cap by document size: keep as many states as fit a ~1 GB budget (one
+state costed as a full doc canvas, `w*h*4`), clamped to [2, stock]. Small docs unaffected;
+a 12000×12000 doc keeps 2 states instead of 20. Runtime-tunable: `window.__ppHistBudget` (bytes);
+the effective cap is exposed as `window.__ppHistCap` for diagnostics/tests.
+Gotcha for tests: `app.documents.add(w,h)` WITHOUT the resolution arg creates a NaN-dims doc in
+the offline build — always pass `72`.
 
 ### C2. Auto-convert 16/32-bit documents to 8-bit on open
 Scripted `Image > Mode` call (or patch) — halves/quarters raster memory for deep-color files.
@@ -109,6 +127,6 @@ Should be opt-in or badge-announced (it's lossy).
 ## Suggested order
 
 1. **A1 + A2** ✅ — cut proxy-build peak RSS 4.4 GB → 1.9 GB on the 2 GB test file; makes the >4 GB tier real.
-2. **C1** — history cap; fixes long editing sessions.
-3. **B1** (then B2) — makes *editing* large files genuinely low-RAM.
-4. A3, C2, D1, D2 — cheap, independent, do opportunistically.
+2. **C1** ✅ — size-aware history cap (+ fixed unbounded history offline).
+3. **B1** ✅ — active-layer full-res escalation (adapted: opens as its own doc).
+4. Next: B2 (edit-on-proxy, replay-on-original), A3, C2, D1, D2.

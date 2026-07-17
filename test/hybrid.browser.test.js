@@ -85,6 +85,85 @@ agPsd.initializeCanvas(
     const at = (x, y) => md.data[(y * md.width + x) * 4 + 3];
     ok('mask baked into alpha (inside)', Math.abs(at(5, 3) - 100) <= 3, String(at(5, 3)));
     ok('mask baked into alpha (outside)', at(13, 8) <= 3, String(at(13, 8)));
+
+    // ---- live-Photopea tests: script channel, per-layer escalation (B1), history cap (C1) ----
+    // Photopea scripts sent via postMessage run in the page's own JS context, so a script can
+    // report back through a window global that page.waitForFunction can see.
+    const runScript = async (script, resultExpr, timeout = 30000) => {
+      await page.evaluate((s) => window.postMessage(s, '*'), script);
+      if (!resultExpr) return null;
+      await page.waitForFunction(resultExpr, { timeout });
+      return page.evaluate(resultExpr);
+    };
+    // wait until Photopea's script engine answers a ping
+    await page.evaluate(() => {
+      window.__ping = 0;
+      const iv = setInterval(() => window.postMessage('window.__ping=1', '*'), 500);
+      window.__stopPing = () => clearInterval(iv);
+    });
+    await page.waitForFunction('window.__ping === 1', { timeout: 60000 });
+    await page.evaluate(() => window.__stopPing());
+    ok('Photopea script channel alive', true);
+
+    // open the proxy through the REAL FileReader hook (forced scale), then hand the delivered
+    // buffer to Photopea — the same buffer Photopea's open path would have received
+    await page.evaluate(async (b64) => {
+      window.__hybridForceScale = 0.5;
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const file = new File([bytes], 'live.psd');
+      const buf = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = () => reject(fr.error);
+        fr.readAsArrayBuffer(file);
+      });
+      delete window.__hybridForceScale;
+      window.postMessage(buf, '*', [buf]);
+    }, psdB64);
+    const nDocs = await runScript('window.__docs=app.documents.length', 'window.__docs');
+    ok('proxy opened in Photopea', nDocs === 1, 'documents=' + nDocs);
+
+    // B1: select 'semi' (top-first index 2 of [G, masked, semi, bottom]) and escalate it
+    await runScript('app.activeDocument.activeLayer=app.activeDocument.layers[2];window.__sel=app.activeDocument.activeLayer.name',
+                    'window.__sel');
+    await page.evaluate(() => window.__escalateActiveLayer());
+    await page.evaluate(() => { window.__docs = 0; });
+    let layerDoc = null;
+    for (let tries = 0; tries < 60 && !layerDoc; tries++) {
+      await new Promise(r => setTimeout(r, 500));
+      layerDoc = await runScript(
+        'window.__d2=app.documents.length<2?null:JSON.stringify({n:app.documents[1].activeLayer.name,w:parseInt(app.documents[1].width),h:parseInt(app.documents[1].height)})',
+        'window.__d2 !== undefined') ? await page.evaluate('window.__d2') : null;
+      if (layerDoc === 'null' || layerDoc === null) { layerDoc = null; await page.evaluate('delete window.__d2'); }
+    }
+    const d2 = layerDoc ? JSON.parse(layerDoc) : null;
+    ok('B1: active layer opened as own doc', !!d2, layerDoc || 'no second document');
+    if (d2) {
+      ok('B1: full layer resolution (20x10, not 10x5)', d2.w === 20 && d2.h === 10, d2.w + 'x' + d2.h);
+      ok('B1: layer name + origin carried', /semi @ full res \(5,6\)/.test(d2.n), d2.n);
+    }
+    const stillPreview = await page.evaluate(() => !!document.getElementById('__hybridbadge'));
+    ok('B1: proxy stays in preview mode (badge kept)', stillPreview);
+
+    // C1: size-aware history cap. Control first: with the default ~1 GB budget a small doc keeps
+    // stock history (proves the rotations DO record states); then a tiny budget caps it at 2.
+    await runScript('app.documents.add(400,400,72);window.__doc3=app.documents.length', 'window.__doc3');
+    for (let i = 0; i < 6; i++) {
+      await runScript(`app.activeDocument.artLayers.add();window.__rotA${i}=1`, `window.__rotA${i}`);
+    }
+    const histFree = await runScript('window.__histA=app.activeDocument.historyStates.length', 'window.__histA');
+    ok('C1 control: history grows uncapped', histFree >= 6, 'historyStates=' + histFree);
+
+    await runScript('window.__ppHistBudget=1e6;app.documents.add(400,400,72);window.__doc4=app.documents.length',
+                    'window.__doc4');
+    for (let i = 0; i < 6; i++) {
+      await runScript(`app.activeDocument.artLayers.add();window.__rotB${i}=1`, `window.__rotB${i}`);
+    }
+    const hist = await runScript('window.__histB=app.activeDocument.historyStates.length', 'window.__histB');
+    ok('C1: history capped by RAM budget', hist > 0 && hist <= 4, 'historyStates=' + hist);
+    ok('C1: capped well below control', hist < histFree, hist + ' < ' + histFree);
   } finally {
     await browser.close();
   }
