@@ -99,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         setupMenu()
         let cfg = WKWebViewConfiguration()
         cfg.preferences.javaScriptCanOpenWindowsAutomatically = true
+        cfg.mediaTypesRequiringUserActionForPlayback = []   // Jampea: allow audio without a media gesture
         let frame = NSRect(x: 0, y: 0, width: 1440, height: 900)
         window = NSWindow(contentRect: frame,
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],

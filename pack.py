@@ -111,6 +111,16 @@ function __isDead(u){ u=String(u); return u.indexOf("papi/")!==-1 || u.indexOf("
     try{ Object.defineProperty(window,k,{value:undefined,configurable:true,writable:true}); }
     catch(e){ try{ window[k]=undefined; }catch(e2){} }
   });
+  // WebKit creates AudioContexts "suspended" outside a user gesture and never auto-resumes them,
+  // so Jampea playback is silent in WKWebView/Safari. Resume any suspended context on a gesture.
+  var __acs=[];
+  ["AudioContext","webkitAudioContext"].forEach(function(k){
+    var O=window[k]; if(!O) return;
+    var P=new Proxy(O,{construct:function(t,a){ var c=Reflect.construct(t,a); __acs.push(c); return c; }});
+    try{ window[k]=P; }catch(e){}
+  });
+  function __ackick(){ for(var i=0;i<__acs.length;i++){ try{ if(__acs[i].state==="suspended") __acs[i].resume(); }catch(e){} } }
+  ["pointerdown","mousedown","keydown","touchend"].forEach(function(ev){ window.addEventListener(ev,__ackick,true); });
 })();
 function __bytesToB64(u8){ var s="",CH=0x8000; for(var i=0;i<u8.length;i+=CH){ s+=String.fromCharCode.apply(null,u8.subarray(i,i+CH)); } return btoa(s); }
 async function __ungz(id){
