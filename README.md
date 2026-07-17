@@ -72,7 +72,8 @@ above; override the memory ceiling with the `PHOTOPEA_MAX_RAM_MB` env var). They
 Windows SmartScreen asks "More info → Run anyway" once. Note: Photopea's wasm modules are
 32-bit internally (4GB per module) — no wrapper can lift that.
 
-**Open With from the OS** (PSD/PSB, AI, XD, Fig, Sketch, PDF, SVG, images, RAW):
+**Open With from the OS** (PSD/PSB, AI, XD, Fig, Sketch, PDF, EPS, SVG, images, RAW, plus
+Jampea music formats — MIDI, Guitar Pro, MuseScore, MusicXML, SoundFont):
 - macOS: `Photopea.app` registers automatically (run it once if Finder doesn't list it).
 - Windows: run `Photopea-portable-OpenWith-Install.bat` (next to the exe) or
   `builds/Install-OpenWith-Windows.bat` for the launcher — per-user, no admin. Matching Uninstall scripts included.
@@ -115,7 +116,9 @@ routing automatically: raster → sharp, layered → Photopea (same options).
 ## Notes & limits
 
 - Clipboard Paste and Local Fonts need the served version (secure context) — see above.
-- Jampea music playback needs the soundfont bundled at build time (see Build above); without
-  it the editor works but plays no sound.
+- Jampea music playback and MIDI input work offline, including in the native macOS app
+  (WebKit/Safari) and the Electron apps. Sound needs the MagicSF soundfont bundled at build
+  time (see Build above) — pack.py warns if it's missing, in which case the editor still works
+  but plays no sound.
 - Needs a modern browser with `DecompressionStream` (Chrome/Edge, Safari 16.4+, Firefox 113+).
   The macOS app needs Xcode CLT to build; `cli.js` needs Chrome; the Electron apps need `npm install`.
