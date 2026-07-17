@@ -1,8 +1,17 @@
 # Photopea Offline
 
-A fully offline build of [Photopea](https://www.photopea.com) — plus its sibling editions
-**Vectorpea** (vectors) and **Jampea** (music). No internet, no server. All 50 UI languages
-bundled; everything reproducible from a fresh photopea.com download via the scripts here.
+A fully offline build of [Photopea](https://www.photopea.com). **One app, three tools** —
+switch between them from the toggle at the top-right:
+
+- **Photopea** — photo/image editor, a free alternative to Adobe Photoshop (PSD, layers,
+  filters, RAW, …)
+- **Vectorpea** — vector graphics editor, a free alternative to Illustrator (AI, SVG, PDF)
+- **Jampea** — music/MIDI editor with piano-roll and sheet views
+
+No internet, no server. All 50 UI languages bundled; everything reproducible from a fresh
+photopea.com download via the scripts here.
+
+![Photopea Offline](docs/screenshot.png)
 
 > **This repo ships tooling only.** Photopea is proprietary — `photopea.com/` and `builds/` are
 > git-ignored and never published. You supply a local Photopea copy, then build locally.
