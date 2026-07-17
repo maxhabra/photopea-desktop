@@ -21,3 +21,7 @@ if [ ! -d test/node_modules/puppeteer-core ]; then
 fi
 
 CHROME="$CHROME" node test/run.js "$TARGET"
+
+# hybrid low-RAM proxy: lazy PSD reader unit tests (pure node) + end-to-end in the build
+node test/hybrid.test.js
+CHROME="$CHROME" node test/hybrid.browser.test.js "$TARGET"
