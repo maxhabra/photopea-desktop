@@ -172,6 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             access.inputs=map;
             var rs=resolvers; resolvers=[];
             for(var j=0;j<rs.length;j++) rs[j](access);
+            if(rs.length&&names.length==0) alert("No MIDI devices found. Connect a USB MIDI device, or pair Bluetooth MIDI at the macOS level (Audio MIDI Setup > Window > Show MIDI Studio > Bluetooth), then click Input > MIDI Device again.");
             if(access.onstatechange) try{ access.onstatechange({port:inputs[0]}); }catch(e){}
           };
           window.__midiRecv=function(i,bytes){
@@ -189,6 +190,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         })();
         """
         cfg.userContentController.addUserScript(WKUserScript(source: midiJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        // real RAM size for the Low RAM Mode default (>= 23 GB -> default off); the page can't
+        // read it itself (navigator.deviceMemory is capped at 8)
+        let ramGB = Double(ProcessInfo.processInfo.physicalMemory) / 1073741824.0
+        cfg.userContentController.addUserScript(WKUserScript(source: "window.__ppRAMGB=\(ramGB);", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let frame = NSRect(x: 0, y: 0, width: 1440, height: 900)
         window = NSWindow(contentRect: frame,
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],

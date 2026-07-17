@@ -13,9 +13,6 @@ photopea.com download via the scripts here.
 
 ![Photopea Offline](docs/screenshot.png)
 
-> **This repo ships tooling only.** Photopea is proprietary — `photopea.com/` and `builds/` are
-> git-ignored and never published. You supply a local Photopea copy, then build locally.
-
 ## What's different vs photopea.com
 
 - **Fully offline** — one self-contained HTML file (or native apps), no internet, no ads.
@@ -25,7 +22,9 @@ photopea.com download via the scripts here.
 - **Low-RAM mode for big PSDs** — large files open as a downscaled proxy built by a lazy,
   strip-decoding PSD reader (never holds the whole file or a full-res layer in memory: peak RAM
   on a 2GB PSD drops from ~4.4GB to ~1.9GB). The active layer escalates to full resolution
-  on demand, and hidden layers aren't decoded until you toggle them on.
+  on demand, and hidden layers aren't decoded until you toggle them on. Toggle it via
+  **More → Enable Low RAM Mode** (default on; defaults to off on machines with ≥ 23 GB RAM
+  in the mac/Electron apps — when off, big PSDs load at full resolution from the start).
 - **Bounded undo history** — a size-aware history cap; stock Photopea keeps every history state
   until the tab reloads, which alone can eat many GB during a long session.
 - **OS integration** — "Open With" file associations, file arguments, single-instance window,

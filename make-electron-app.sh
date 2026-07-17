@@ -47,7 +47,7 @@ JSON
 cat > "$SRC/main.js" <<'JS'
 // Photopea Offline — Electron shell. Loads the single-file build and lifts the browser limits
 // that kill big documents: the V8 old-space cap (default ~4GB) is raised to ~80% of machine RAM.
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, dialog, shell } = require('electron');
 const fs = require('fs'), os = require('os'), path = require('path');
 
 const SMOKE = process.env.PHOTOPEA_SMOKE === '1';
@@ -128,11 +128,29 @@ if (!app.requestSingleInstanceLock()) {
       if (/^https?:/.test(url)) shell.openExternal(url);
       return { action: 'deny' };
     });
+    // real RAM size for the Low RAM Mode default (>= 23 GB -> default off); the page can't
+    // read it itself (navigator.deviceMemory is capped at 8)
+    win.webContents.on('dom-ready', () => {
+      win.webContents.executeJavaScript(
+        'window.__ppRAMGB=' + (os.totalmem() / 1073741824) + ';').catch(() => {});
+    });
     win.webContents.on('did-finish-load', () => {
       pageLoaded = true;
       const f = pending; pending = [];
       openFiles(f);
       if (SMOKE) smoke();
+    });
+    // Photopea registers onbeforeunload ("unsaved changes"), which silently cancels the
+    // window close in Electron — the X button would do nothing. Ask the user instead.
+    win.webContents.on('will-prevent-unload', (e) => {
+      const choice = dialog.showMessageBoxSync(win, {
+        type: 'question',
+        buttons: ['Quit', 'Cancel'],
+        defaultId: 1, cancelId: 1,
+        message: 'Quit Photopea?',
+        detail: 'Unsaved changes will be lost.',
+      });
+      if (choice === 0) e.preventDefault(); // preventDefault = ignore the page's block, close anyway
     });
     win.loadFile('app.html');
     win.on('closed', () => { win = null; });

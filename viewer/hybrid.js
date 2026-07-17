@@ -24,6 +24,21 @@ import Psd from '@webtoon/psd';
 import { writePsd } from 'ag-psd';
 import { parseLazyPsd, readChannelRows } from './lazy-psd.js';
 
+// ---- "Enable Low RAM Mode" setting (toggle lives in Photopea's More menu) --------------------
+// When ON (default), big PSDs open as the downscaled proxy below. When OFF, they load at full
+// resolution from the start (the FileReader hook passes the original file through untouched).
+// Default is OFF on machines with >= 23 GB of RAM — browsers can't read the real RAM size
+// (navigator.deviceMemory is capped at 8), so the mac/electron shells inject window.__ppRAMGB.
+const RAM_DEFAULT_OFF_GB = 23;
+function lowRamEnabled() {
+  try {
+    const v = localStorage.getItem('__ppLowRAM');
+    if (v === '1') return true;
+    if (v === '0') return false;
+  } catch (e) { /* ignore */ }
+  return !(window.__ppRAMGB >= RAM_DEFAULT_OFF_GB);
+}
+
 let previewMode = true;      // true until the user escalates for the current doc
 let stashedFile = null;      // the original File/Blob (disk-backed -> cheap; re-read on escalate)
 let stashedMeta = null;      // lazy-psd metadata of the stashed file (per-layer escalation, B1)
@@ -332,7 +347,7 @@ FileReader.prototype.readAsArrayBuffer = function (blob) {
   // size decides everything up front — nothing is read here (blob.size is free).
   // window.__hybridForceScale (tests/diagnostics) forces the proxy on for small files.
   const forced = window.__hybridForceScale;
-  if (previewMode && blob && isPsd(blob.name) && (forced || scaleForSize(blob.size) < 1)) {
+  if (lowRamEnabled() && previewMode && blob && isPsd(blob.name) && (forced || scaleForSize(blob.size) < 1)) {
     const fr = this;
     (async () => {
       let proxy = null;
@@ -638,6 +653,66 @@ function showBadge() {
   document.body.appendChild(b);
 }
 function hideBadge() { const b = document.getElementById('__hybridbadge'); if (b) b.remove(); }
+
+// ---- "Enable Low RAM Mode" row in the More menu -----------------------------------------------
+//
+// Photopea's dropdowns are div.contextpanel elements with div.enab rows:
+//   <div class="enab"><span class="check">[svg tick]</span><span class="label">text</span></div>
+// The More menu can't be extended from the outside (items/handlers live in the minified bundle),
+// so the row is injected into its panel DOM when it appears. The panel is identified by its
+// WebGL row — "WebGL" survives translation in ~every UI language.
+const CHECK_SVG = "<svg height='10px' width='10px' fill='none' stroke-width='1.35' " +
+                  "stroke='currentColor'><path d='M 1 5 L 4 8 L 9 2'/></svg>";
+
+function injectLowRamMenuItem(panel) {
+  if (panel.querySelector('.__lowramrow')) {         // reopened panel: just refresh the tick
+    const c = panel.querySelector('.__lowramrow .check');
+    if (c) c.innerHTML = lowRamEnabled() ? CHECK_SVG : '';
+    return;
+  }
+  let anchor = null;
+  for (const l of panel.querySelectorAll('span.label')) {
+    if (/WebGL/i.test(l.textContent)) { anchor = l.parentNode; break; }
+  }
+  if (!anchor || anchor.parentNode !== panel) return;
+  const row = document.createElement('div');
+  row.className = 'enab __lowramrow';
+  row.title = 'Open big PSDs (over 800 MB) as a downscaled low-RAM preview first. ' +
+              'When off, big PSDs load at full resolution from the start.';
+  const check = document.createElement('span');
+  check.className = 'check';
+  check.innerHTML = lowRamEnabled() ? CHECK_SVG : '';
+  const label = document.createElement('span');
+  label.className = 'label';
+  label.textContent = 'Enable Low RAM Mode';
+  row.appendChild(check);
+  row.appendChild(label);
+  // The panel may act (or dismiss) on pointerdown/mousedown/mouseup/click depending on platform,
+  // so toggle on the FIRST event of the press and swallow the rest of the sequence.
+  let lastToggle = 0;
+  const onPress = (e) => {
+    e.stopPropagation();                             // keep the panel's own row handler out of it
+    const now = Date.now();
+    if (now - lastToggle < 400) return;              // later events of the same press
+    lastToggle = now;
+    const on = !lowRamEnabled();
+    try { localStorage.setItem('__ppLowRAM', on ? '1' : '0'); } catch (e2) { /* ignore */ }
+    check.innerHTML = on ? CHECK_SVG : '';
+  };
+  ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach((ev) =>
+    row.addEventListener(ev, onPress, true));
+  panel.insertBefore(row, anchor.nextSibling);
+}
+
+new MutationObserver((muts) => {
+  for (const m of muts) {
+    for (const n of m.addedNodes) {
+      if (n.nodeType !== 1) continue;
+      if (n.classList && n.classList.contains('contextpanel')) injectLowRamMenuItem(n);
+      else if (n.querySelectorAll) n.querySelectorAll('.contextpanel').forEach(injectLowRamMenuItem);
+    }
+  }
+}).observe(document.documentElement, { childList: true, subtree: true });
 
 // on-edit-tool: picking a tool from the left toolbar (the ~44px strip below the menu bar) means the
 // user wants to edit -> escalate. Browsing/toggling layers (right panel) and zoom/pan do NOT escalate.
