@@ -65,6 +65,16 @@ Build once with `sh make-mac-app.sh` (macOS app) and/or `sh make-launchers.sh` (
 The Windows/Linux launchers just open `photopea-offline.html` in an installed Chromium browser's
 chromeless "app window" — no bundling, tiny, and no Gatekeeper/SmartScreen app-signing issues.
 
+**Open files from the OS (right-click → Open With)** — PSD/PSB, AI, XD, Fig, Sketch, PDF, SVG,
+common images and camera RAW:
+- **macOS**: `Photopea.app` registers the types automatically — pick it under **Open With**
+  (Finder caches the list; if it doesn't show, run `open builds/Photopea.app` once).
+- **Windows**: run `builds/Install-OpenWith-Windows.bat` once (per-user, no admin) — adds
+  **Photopea Offline** to the "Open With" menu. Remove with `Uninstall-OpenWith-Windows.bat`.
+- **Linux**: run `builds/install-openwith-linux.sh` once — installs the `.desktop` entry with the
+  MIME types so file managers list **Photopea** in "Open With".
+- Launchers also take file arguments directly: `Photopea.bat image.psd`, `./photopea.sh a.psd b.png`.
+
 **Running the macOS `.app` on ANOTHER Mac** → macOS shows *"Apple could not verify … Move to Trash"*.
 That's because the app is ad-hoc signed (not notarized) and gets quarantined when transferred. Fix on
 that Mac, any one of:

@@ -109,6 +109,12 @@ s = patch(s, "fewer history states (RAM)",
           'j1:20,HH:0',
           'j1:12,HH:4')
 
+print("\n[2e] Automate dialogs (Files -> Automate: Batch / Convert / Resize / ...): keep only the")
+print("     'Local' source, drop 'Storage' (the cloud/storage browser doesn't work offline).")
+s = patch(s, "Automate source: Local only",
+          'this.qI=new iU([12,70],["Local",[1,19,0]]);',
+          'this.qI=new iU([12,70],["Local"]);')
+
 print("\n[3] hide unwanted UI")
 s = patch(s, "hide Home sidebar",
           'if(this.xL){U=[[[1,19,3],null,"strg/home"]].concat(U.concat(jv.WW));',
@@ -122,6 +128,26 @@ s = patch(s, "hide top-right links",
 s = patch(s, "hide Account button",
           'if(B.AX){U.appendChild(this.cF.$)}',
           'if(false){U.appendChild(this.cF.$)}')
+s = patch(s, "remove Window -> Plugins",
+          ',{name:"Plugins",PX:!0}',
+          '')
+# More menu: drop 'Install Photopea' (PWA install — pointless offline) and 'About Photopea'.
+# items[] and q_[] are parallel arrays built by .push(); remove BOTH pushes so they stay aligned.
+s = patch(s, "remove More -> Install Photopea",
+          'A.items.push({name:lg==0?[0,17,6]:"Install Vectorpea",d:function(F,$){return{d:$.fI!=null}}});\nA.q_.push({N:G.E.b,I:{v:G.m.bc}});',
+          '')
+s = patch(s, "remove More -> About Photopea",
+          'A.items.push({name:"",d:function(F,$){return $.AX?{lh:"About "+["Photopea","Vectorpea"][lg],d:!0}:{lh:"",d:!1}}});\nA.q_.push({N:G.E.b,I:{v:G.m.Po,sY:"aboutpp"}});',
+          '')
+# File -> Open More: drop 'From Storage...' (cloud browser, dead offline) and 'PSD Templates...'
+# (online gallery). items[].sub and q_[].sub are PARALLEL, so remove the same indices (1 and 4)
+# in both to keep 'From Any Folder', 'Open from URL', 'Take a picture' aligned with their handlers.
+s = patch(s, "Open More labels: drop Storage + PSD Templates",
+          '[{name:"From Any Folder"},{name:[1,19,1],jF:!0,E9:[D,R,B.u2]},{name:[1,5],jF:!0},{name:[11,0],jF:!0},{name:["PSD VAR0",[25,0]],jF:!0}]',
+          '[{name:"From Any Folder"},{name:[1,5],jF:!0},{name:[11,0],jF:!0}]')
+s = patch(s, "Open More handlers: drop Storage + PSD Templates",
+          '[{N:G.E.b,I:{v:G.m.pv,gn:!0}},{N:G.E.b,I:{v:G.m.Po,sY:"storwindow",kk:0}},{N:G.E.b,I:{v:G.m.Po,sY:"open_from_url"}},{N:G.E.b,I:{v:G.m.Po,sY:"camera"}},{N:G.E.b,I:{v:G.m.Po,sY:"res0"}}]',
+          '[{N:G.E.b,I:{v:G.m.pv,gn:!0}},{N:G.E.b,I:{v:G.m.Po,sY:"open_from_url"}},{N:G.E.b,I:{v:G.m.Po,sY:"camera"}}]')
 
 open(BUNDLE, "w", encoding="utf-8").write(s)
 

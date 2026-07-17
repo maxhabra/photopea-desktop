@@ -12,6 +12,8 @@ HTML="builds/photopea-offline.html"
 ICON_SRC="photopea.com/promo/icon512.png"
 APP="builds/Photopea.app"
 TITLE="Photopea"
+# extensions registered for Finder "Open With" (design docs, images, RAW)
+FILE_EXTS="psd psb ai xd fig sketch pdf eps svg png jpg jpeg jfif gif webp avif bmp ico tif tiff tga dds heic exr ppm pgm dng cr2 cr3 nef arw orf rw2 raf srw pef"
 [ -f "$HTML" ] || { echo "ERROR: $HTML not found — run 'python3 pack.py' first." >&2; exit 1; }
 [ -f "$ICON_SRC" ] || { echo "ERROR: $ICON_SRC not found." >&2; exit 1; }
 
@@ -40,6 +42,28 @@ import WebKit
 final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var web: WKWebView!
+    var pageReady = false
+    var pendingFiles: [URL] = []
+
+    // Files opened via Finder ("Open With" / double-click). May fire before or after launch.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        pendingFiles.append(contentsOf: urls)
+        if pageReady { flushPendingFiles() }
+    }
+    func flushPendingFiles() {
+        let files = pendingFiles; pendingFiles = []
+        for url in files {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            let b64 = data.base64EncodedString()
+            let name = String(data: try! JSONEncoder().encode(url.lastPathComponent), encoding: .utf8) ?? "\\"file\\""
+            web.evaluateJavaScript("window.__openLocalB64(" + name + ", \\"" + b64 + "\\");", completionHandler: nil)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        pageReady = true
+        if !pendingFiles.isEmpty { flushPendingFiles() }
+    }
     func setupMenu() {
         let main = NSMenu()
         // App menu — gives Cmd+Q (Quit) and Cmd+H (Hide)
@@ -132,6 +156,19 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key>           <string>${VER}</string>
   <key>LSMinimumSystemVersion</key>    <string>13.3</string>
   <key>NSHighResolutionCapable</key>   <true/>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>      <string>Image / Design Document</string>
+      <key>CFBundleTypeRole</key>      <string>Editor</string>
+      <key>CFBundleTypeIconFile</key>  <string>AppIcon</string>
+      <key>LSHandlerRank</key>         <string>Alternate</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+$(for e in $FILE_EXTS; do printf '        <string>%s</string>\n' "$e"; done)
+      </array>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST
