@@ -1,212 +1,98 @@
 # Photopea Offline
 
-A fully offline build of [Photopea](https://www.photopea.com) (the image editor) — plus its
-sibling editions **Vectorpea** (vectors) and **Jampea** (music). Runs with no internet and no
-server: as a single HTML file, a native macOS app, or from the command line for batch jobs.
+A fully offline build of [Photopea](https://www.photopea.com) — plus its sibling editions
+**Vectorpea** (vectors) and **Jampea** (music). No internet, no server. All 50 UI languages
+bundled; everything reproducible from a fresh photopea.com download via the scripts here.
 
-All 50 UI languages are bundled, and all patches/edits are reproducible from a fresh photopea.com
-download via the scripts in this repo.
+> **This repo ships tooling only.** Photopea is proprietary — `photopea.com/` and `builds/` are
+> git-ignored and never published. You supply a local Photopea copy, then build locally.
 
-```
-photopea-offline/
-├── photopea.com/            # the app source (patched); serve this for the full experience
-├── builds/
-│   ├── photopea-offline.html   # ONE self-contained file — open it, no server needed
-│   └── Photopea.app            # native macOS wrapper of that file
-├── cli.js                   # command-line batch converter (headless)
-├── refresh.sh  pack.py  make-mac-app.sh   # build pipeline (see refresh.md)
-├── test.sh  test-app.sh     # smoke tests
-└── refresh.md               # how everything is built/patched (internals)
-```
-
-> **This repo ships the tooling only** — not Photopea itself. Photopea is proprietary, so its code
-> (`photopea.com/`) and the generated `builds/` are git-ignored and never published here. You supply
-> a local Photopea copy, then build locally (below).
-
----
-
-## Setup (build it first)
+## Build
 
 ```sh
 git clone https://github.com/ptrinh/photopea-desktop.git
 cd photopea-desktop
-npm install                    # puppeteer-core + sharp (for the CLIs/tests)
+npm install
 
 # 1) put a local copy of the Photopea site into ./photopea.com/
-#    (its index.html, code/, style/, rsrc/, promo/, ... from photopea.com)
 # 2) build:
-sh refresh.sh                  # apply the offline patches
-python3 pack.py                # -> builds/photopea-offline.html
-sh make-mac-app.sh             # -> builds/Photopea.app   (macOS, optional)
-sh make-launchers.sh           # -> Windows/Linux launchers (optional)
+sh refresh.sh                # apply the offline patches (details: refresh.md)
+python3 pack.py              # -> builds/photopea-offline.html (single file)
+sh make-mac-app.sh           # -> builds/Photopea.app                      (macOS, optional)
+sh make-launchers.sh         # -> Photopea.bat / photopea.sh launchers     (optional)
+sh make-electron-app.sh      # -> standalone Windows/Linux apps            (optional)
 ```
 
-Once `builds/` exists, use any of the options below.
-
----
+Tests: `sh test.sh` (headless checks) · `sh test-app.sh` (native app opens).
+`refresh.sh --reset` rebuilds the patched bundle cleanly from `.orig` backups.
 
 ## Ways to use it
 
-### 1. Single file (simplest)
-Open **`builds/photopea-offline.html`** in any modern browser (Chrome/Edge/Safari/Firefox) — even
-by double-clicking (`file://`). No server, no internet.
-- Switch **Photopea / Vectorpea / Jampea** from the toggle at the top-right of the menu bar.
-- UI language follows your system language automatically; pick another under the **More** menu.
+**1. Single file** — open `builds/photopea-offline.html` in any modern browser, even by
+double-click (`file://`). Switch Photopea / Vectorpea / Jampea from the top-right toggle;
+UI language follows the system (change under **More**).
 
-### 2. Desktop app / launchers
-Build once with `sh make-mac-app.sh` (macOS app) and/or `sh make-launchers.sh` (Windows + Linux):
+**2. Desktop apps**
 
-| Platform | File in `builds/` | How |
+| Platform | What | Notes |
 |---|---|---|
-| macOS | `Photopea.app` | native (WKWebView). First launch: **right-click → Open**. |
-| Windows | `Photopea.bat` | double-click — opens as an app window in Chrome/Edge |
-| Linux/Unix | `photopea.sh` / `Photopea.desktop` | `./photopea.sh`, or copy the `.desktop` to `~/.local/share/applications/` |
+| macOS | `Photopea.app` | native WKWebView. First launch: right-click → Open |
+| Windows | `Photopea-windows-app.zip` → `Photopea.exe` | standalone (Electron), no Chrome needed |
+| Linux | `Photopea-linux-app.zip` → `./Photopea` | standalone (Electron), no Chrome needed |
+| any | `Photopea.bat` / `photopea.sh` | tiny launchers — open the HTML in an installed Chrome/Edge app window |
 
-The Windows/Linux launchers just open `photopea-offline.html` in an installed Chromium browser's
-chromeless "app window" — no bundling, tiny, and no Gatekeeper/SmartScreen app-signing issues.
+The standalone Windows/Linux apps are the big-file-friendly option: a dedicated process (never
+OOM-killed by a browser, no competing tabs) with the V8 heap ceiling raised to ~80% of machine
+RAM (override: `PHOTOPEA_MAX_RAM_MB` env var). They're unsigned — Windows SmartScreen asks
+"More info → Run anyway" once. Note: Photopea's wasm modules are 32-bit internally (4GB per
+module) — no wrapper can lift that.
 
-**Open files from the OS (right-click → Open With)** — PSD/PSB, AI, XD, Fig, Sketch, PDF, SVG,
-common images and camera RAW:
-- **macOS**: `Photopea.app` registers the types automatically — pick it under **Open With**
-  (Finder caches the list; if it doesn't show, run `open builds/Photopea.app` once).
-- **Windows**: run `builds/Install-OpenWith-Windows.bat` once (per-user, no admin) — adds
-  **Photopea Offline** to the "Open With" menu. Remove with `Uninstall-OpenWith-Windows.bat`.
-- **Linux**: run `builds/install-openwith-linux.sh` once — installs the `.desktop` entry with the
-  MIME types so file managers list **Photopea** in "Open With".
-- Launchers also take file arguments directly: `Photopea.bat image.psd`, `./photopea.sh a.psd b.png`.
+**Open With from the OS** (PSD/PSB, AI, XD, Fig, Sketch, PDF, SVG, images, RAW):
+- macOS: `Photopea.app` registers automatically (run it once if Finder doesn't list it).
+- Windows: run `Install-OpenWith.bat` (in the app folder) or `builds/Install-OpenWith-Windows.bat`
+  for the launcher — per-user, no admin. Matching Uninstall scripts included.
+- Linux: run `install-openwith-linux.sh` (in the app folder or `builds/`).
+- All apps/launchers also take file arguments: `Photopea.bat a.psd`, `./Photopea a.psd b.png`.
+  Files opened while the app runs land in the existing window.
 
-**Running the macOS `.app` on ANOTHER Mac** → macOS shows *"Apple could not verify … Move to Trash"*.
-That's because the app is ad-hoc signed (not notarized) and gets quarantined when transferred. Fix on
-that Mac, any one of:
-- Double-click **`Trust-Photopea.command`** (shipped next to the app), then open the app; **or**
-- Terminal: `xattr -cr /path/to/Photopea.app` ; **or**
-- Open it once → **System Settings → Privacy & Security → Open Anyway**.
+**macOS app on another Mac** shows "Apple could not verify…" (ad-hoc signed). Fix: double-click
+the shipped `Trust-Photopea.command`, or `xattr -cr Photopea.app`. Proper fix: notarize with
+`NOTARY_PROFILE=... sh notarize-mac-app.sh` (needs an Apple Developer ID; see script header).
 
-**Proper fix — sign + notarize (Apple Developer account):** makes the app open on ANY Mac with no
-warning at all. `sh make-mac-app.sh` builds it, then:
+**3. Served** — `sh photopea.com/start.sh` → http://localhost:8899/. As a secure context this
+unlocks full **clipboard Paste** and the **Local Fonts** panel (both restricted on `file://`;
+elsewhere use Cmd+V and drag-drop `.ttf/.otf` fonts).
+
+## Command line — `cli.js`
+
+Headless batch convert/resize/export (parallel workers, offline, uses Chrome headless):
+
 ```sh
-# one-time: store notary credentials (app-specific password from appleid.apple.com)
-xcrun notarytool store-credentials "photopea-notary" \
-    --apple-id "you@example.com" --team-id "YOURTEAMID" --password "abcd-efgh-ijkl-mnop"
-
-# sign with your Developer ID + notarize + staple:
-NOTARY_PROFILE="photopea-notary" sh notarize-mac-app.sh
+npm link                     # once -> global `photopea` command (or: node cli.js …)
+photopea photo.psd --to png
+photopea *.psd --to jpg --quality 90 --out exported
+photopea a.png b.webp --to jpg --resize 1024x1024
+photopea shots/*.psd --to webp --concurrency 8
 ```
-`notarize-mac-app.sh` auto-detects your "Developer ID Application" certificate, signs with the
-hardened runtime, submits to Apple, waits for the verdict, and staples the ticket onto the app.
-After that the app is trusted everywhere and no `Trust-Photopea.command` / `xattr` is needed.
-
-Without notarization, the **launcher** route (`photopea.sh`, or just opening the HTML in Chrome)
-avoids the whole issue since it isn't a signed app.
-
-### 3. Served (best for clipboard & local fonts)
-```sh
-sh photopea.com/start.sh          # serves on http://localhost:8899/
-```
-`localhost` is a secure context, so **Paste** and the **Local Fonts** feature work fully there
-(they're restricted on `file://`).
-
----
-
-## Command line (batch) — `cli.js`
-
-Drive Photopea headlessly to convert / resize / export many files at once — in parallel. Uses the
-single-file build and Chrome (headless) under the hood — still fully offline.
-
-**Install the `photopea` command (once):**
-```sh
-npm install          # installs puppeteer-core
-npm link             # or: npm install -g .   -> makes `photopea` global
-```
-(Or skip the global command and run `node cli.js …` directly.)
-
-**Usage**
-```sh
-photopea <inputs...> --to <format> [options]
-```
-
-**Examples**
-```sh
-photopea photo.psd --to png                             # PSD -> PNG (./out/photo.png)
-photopea *.psd --to jpg --quality 90 --out exported      # batch, JPEG q90
-photopea a.png b.webp --to jpg --resize 1024x1024         # convert + resize
-photopea poster.psd --to pdf                             # export to PDF
-photopea logo.ai --to png --resize 512x                  # width 512, height auto
-photopea shots/*.psd --to webp --concurrency 8 --out web  # 8 parallel workers
-```
-
-**Options**
 
 | Option | Meaning |
 |---|---|
-| `--to <fmt>` | output format: `png jpg webp gif bmp tiff svg pdf psd ai …` (required) |
+| `--to <fmt>` | output: `png jpg webp gif bmp tiff svg pdf psd ai …` (required) |
 | `--out <dir>` | output directory (default `./out`) |
-| `--resize <WxH>` | resize before export, e.g. `1920x1080` (`512x` or `x512` keeps aspect) |
-| `--quality <0-100>` | quality for `jpg`/`webp` (default 90) |
-| `--concurrency <N>` | parallel Photopea workers (default: CPU cores) |
-| `--script "<js>"` | run an extra Photopea script per file before export (advanced) |
-| `--html <path>` | path to the build (default `builds/photopea-offline.html`) |
-| `--chrome <path>` | Chrome/Chromium (auto-detected on macOS/Linux, or `$CHROME`) |
+| `--resize <WxH>` | e.g. `1920x1080`; `512x` / `x512` keeps aspect |
+| `--quality <0-100>` | for jpg/webp (default 90) |
+| `--concurrency <N>` | parallel workers (default: CPU cores) |
+| `--script "<js>"` | extra Photopea script per file (advanced) |
+| `--html` / `--chrome` | paths to the build / the browser (auto-detected) |
 
-Input formats are anything Photopea reads (PSD, AI, XD, Sketch, FIG, PDF, PNG/JPG/WEBP/GIF/TIFF/SVG,
-RAW, …). It opens each file via Photopea's postMessage API, transforms it, then exports via `saveToOE`.
-
-### Performance (server / heavy batch)
-Each worker is one headless Photopea instance; `--concurrency N` runs N in parallel and scales
-with CPU cores. The ~7 s Photopea boot is paid **once per worker**, then reused for every file that
-worker handles — so throughput is best with **many files per run** (don't spawn a new process per
-file). On a server add `--no-sandbox` is already set; give it enough RAM (~300–500 MB per worker).
-
-**Should you call the WASM directly instead?** No — it isn't practical for Photopea. Its engine is
-obfuscated JavaScript (~2.5 MB) that orchestrates **Canvas/WebGL rendering** plus several *small*
-WASM modules (JPEG/WebP/Zstd codecs, FriBidi + HarfBuzz for text). There is no single "photopea.wasm"
-to invoke; the compositing/filters/PSD-parsing all live in the JS and need a browser GL context. The
-fast path is parallel headless workers (above), not extracting WASM.
-
-**Better yet — skip Photopea for simple raster ops.** If you only convert/resize/crop ordinary
-images (PNG/JPG/WEBP/GIF/TIFF), a native tool is **10–100× faster** and lighter than a browser:
-- **libvips / sharp** (`npm i sharp`) — extremely fast, low memory, parallel.
-- **ImageMagick** / **ffmpeg**.
-
-Use `photopea` (this CLI) specifically for **layered / vector formats** (PSD, AI, XD, Sketch, FIG)
-and Photopea-only features. For PSD flatten/export at scale without a browser, also consider native
-libs (`libvips` PSD support, ImageMagick, Python `psd-tools`, or Krita's CLI) if their fidelity is
-enough for you.
-
-### `convert-smart` — auto-route (best of both)
-One command that sends each file to the fastest engine automatically: ordinary raster → **sharp**,
-layered/vector → **Photopea**. Same options as `photopea`.
-```sh
-convert-smart mix/*.{png,psd,ai} --to webp --quality 85 --out web --verbose
-```
-
----
-
-## Building from a fresh photopea.com download
-
-```sh
-sh refresh.sh          # apply the offline patches to photopea.com/
-python3 pack.py        # -> builds/photopea-offline.html (single file, all editions + languages)
-sh make-mac-app.sh     # -> builds/Photopea.app          (macOS native)
-sh make-launchers.sh   # -> builds/Photopea.bat + photopea.sh + Photopea.desktop  (Windows/Linux)
-```
-`refresh.sh --reset` regenerates the patched bundle cleanly from the `.orig` backups. Full details
-of every patch are in **refresh.md**.
-
-## Testing
-```sh
-sh test.sh        # 17 checks in headless Chrome (load, layout, UI, editions, languages, file dialog)
-sh test-app.sh    # verifies the native app opens a visible window
-```
-
----
+Throughput tip: the ~7s Photopea boot is paid once per worker, so batch many files per run.
+For plain raster conversions, native tools (sharp/libvips, ImageMagick) are 10–100× faster —
+use this CLI for layered/vector formats (PSD, AI, XD, Sketch, FIG). `convert-smart` does the
+routing automatically: raster → sharp, layered → Photopea (same options).
 
 ## Notes & limits
-- **Clipboard (Paste)**: use **Cmd+V** in the file/app; the menu "Paste" needs a secure context —
-  use the served version for full clipboard access.
-- **Local system fonts**: the "Local Fonts" toggle (Character panel) works only in the served
-  version (Chrome, secure context). Everywhere else, **drag & drop** a `.ttf/.otf/.woff` onto the
-  window to add fonts for the session.
-- **Jampea** music playback needs a soundfont that isn't shipped offline (the editor still works).
-- Requires a Chromium-based or modern browser with `DecompressionStream` (Chrome/Edge, Safari 16.4+,
-  Firefox 113+). The macOS app and `cli.js` need Xcode Command Line Tools / Chrome respectively.
+
+- Clipboard Paste and Local Fonts need the served version (secure context) — see above.
+- Jampea music playback needs a soundfont that isn't shipped (the editor itself works).
+- Needs a modern browser with `DecompressionStream` (Chrome/Edge, Safari 16.4+, Firefox 113+).
+  The macOS app needs Xcode CLT to build; `cli.js` needs Chrome; the Electron apps need `npm install`.
