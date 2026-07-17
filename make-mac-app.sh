@@ -9,12 +9,10 @@ set -e
 cd "$(dirname "$0")"
 
 HTML="builds/photopea-offline.html"
-VIEWER="builds/viewer.html"
 ICON_SRC="photopea.com/promo/icon512.png"
 APP="builds/Photopea.app"
 TITLE="Photopea"
 [ -f "$HTML" ] || { echo "ERROR: $HTML not found — run 'python3 pack.py' first." >&2; exit 1; }
-[ -f "$VIEWER" ] || { echo "ERROR: $VIEWER not found — run 'sh make-viewer.sh' first." >&2; exit 1; }
 [ -f "$ICON_SRC" ] || { echo "ERROR: $ICON_SRC not found." >&2; exit 1; }
 
 echo "Building $APP ..."
@@ -33,10 +31,7 @@ done
 iconutil -c icns build.iconset -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf build.iconset build_icon.png
 
-# default page = the lightweight viewer; the full Photopea editor sits alongside it and the viewer's
-# "Edit in Photopea" button loads it on demand (lazy) in an iframe.
-cp "$VIEWER" "$APP/Contents/Resources/app.html"
-cp "$HTML" "$APP/Contents/Resources/photopea-offline.html"
+cp "$HTML" "$APP/Contents/Resources/app.html"
 
 cat > main.swift <<SWIFT
 import Cocoa
