@@ -7,6 +7,21 @@ bundled; everything reproducible from a fresh photopea.com download via the scri
 > **This repo ships tooling only.** Photopea is proprietary — `photopea.com/` and `builds/` are
 > git-ignored and never published. You supply a local Photopea copy, then build locally.
 
+## What's different vs photopea.com
+
+- **Fully offline** — one self-contained HTML file (or native apps), no internet, no ads.
+- **Higher memory ceiling** — the standalone Windows/Linux (Electron) apps run Photopea in a
+  dedicated process with the V8 heap raised to ~80% of machine RAM, instead of a Chrome tab
+  that gets OOM-killed (helps most on 8–16GB machines).
+- **Low-RAM mode for big PSDs** — large files open as a downscaled proxy built by a lazy,
+  strip-decoding PSD reader (never holds the whole file or a full-res layer in memory: peak RAM
+  on a 2GB PSD drops from ~4.4GB to ~1.9GB). The active layer escalates to full resolution
+  on demand, and hidden layers aren't decoded until you toggle them on.
+- **Bounded undo history** — a size-aware history cap; stock Photopea keeps every history state
+  until the tab reloads, which alone can eat many GB during a long session.
+- **OS integration** — "Open With" file associations, file arguments, single-instance window,
+  plus a headless CLI for batch conversion. Details on the RAM work: `performance.md`.
+
 ## Build
 
 ```sh
@@ -36,16 +51,15 @@ UI language follows the system (change under **More**).
 
 | Platform | What | Notes |
 |---|---|---|
-| macOS | `Photopea.app` | native WKWebView. First launch: right-click → Open |
+| macOS | `Photopea.app` | native WKWebView, signed + notarized — opens on any Mac |
 | Windows | `Photopea-windows-app.zip` → `Photopea.exe` | standalone (Electron), no Chrome needed |
 | Linux | `Photopea-linux-app.zip` → `./Photopea` | standalone (Electron), no Chrome needed |
 | any | `Photopea.bat` / `photopea.sh` | tiny launchers — open the HTML in an installed Chrome/Edge app window |
 
-The standalone Windows/Linux apps are the big-file-friendly option: a dedicated process (never
-OOM-killed by a browser, no competing tabs) with the V8 heap ceiling raised to ~80% of machine
-RAM (override: `PHOTOPEA_MAX_RAM_MB` env var). They're unsigned — Windows SmartScreen asks
-"More info → Run anyway" once. Note: Photopea's wasm modules are 32-bit internally (4GB per
-module) — no wrapper can lift that.
+The standalone Windows/Linux apps are the big-file-friendly option (see *What's different*
+above; override the memory ceiling with the `PHOTOPEA_MAX_RAM_MB` env var). They're unsigned —
+Windows SmartScreen asks "More info → Run anyway" once. Note: Photopea's wasm modules are
+32-bit internally (4GB per module) — no wrapper can lift that.
 
 **Open With from the OS** (PSD/PSB, AI, XD, Fig, Sketch, PDF, SVG, images, RAW):
 - macOS: `Photopea.app` registers automatically (run it once if Finder doesn't list it).
@@ -54,10 +68,6 @@ module) — no wrapper can lift that.
 - Linux: run `install-openwith-linux.sh` (in the app folder or `builds/`).
 - All apps/launchers also take file arguments: `Photopea.bat a.psd`, `./Photopea a.psd b.png`.
   Files opened while the app runs land in the existing window.
-
-**macOS app on another Mac** shows "Apple could not verify…" (ad-hoc signed). Fix: double-click
-the shipped `Trust-Photopea.command`, or `xattr -cr Photopea.app`. Proper fix: notarize with
-`NOTARY_PROFILE=... sh notarize-mac-app.sh` (needs an Apple Developer ID; see script header).
 
 **3. Served** — `sh photopea.com/start.sh` → http://localhost:8899/. As a secure context this
 unlocks full **clipboard Paste** and the **Local Fonts** panel (both restricted on `file://`;
