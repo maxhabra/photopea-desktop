@@ -26,7 +26,15 @@ if xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1
   echo "== notarize (profile: $NOTARY_PROFILE) =="
   NOTARY_PROFILE="$NOTARY_PROFILE" sh notarize-mac-app.sh
 else
-  echo "   (skip notarize: keychain profile '$NOTARY_PROFILE' not found — app stays ad-hoc signed)"
+  echo "############################################################"
+  echo "# WARNING: notary profile '$NOTARY_PROFILE' not found."
+  echo "# The macOS app will be AD-HOC signed only -> it shows a"
+  echo "# security warning on other Macs. To notarize, run once:"
+  echo "#   xcrun notarytool store-credentials \"$NOTARY_PROFILE\" \\"
+  echo "#     --apple-id you@ex.com --team-id TEAMID --password app-specific-pw"
+  echo "# then re-run this release (or notarize-mac-app.sh + gh release upload)."
+  echo "############################################################"
+  [ "$ALLOW_UNNOTARIZED" = "1" ] || { echo "Aborting. Set ALLOW_UNNOTARIZED=1 to release without notarization." >&2; exit 1; }
 fi
 sh make-launchers.sh >/dev/null
 
