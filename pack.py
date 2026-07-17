@@ -200,10 +200,35 @@ function __openU8(name,u8){
     },400);
   })();
 }
-window.__openLocalB64=function(name,b64){ var bin=atob(b64),u=new Uint8Array(bin.length); for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i); __openU8(name,u); };
+// Jampea formats (MIDI / Guitar Pro / MuseScore / MusicXML / SoundFonts) only open in Jampea
+// mode -> when such a file arrives in another mode, switch the mode and reload first.
+var __MUSIC_EXTS={mid:1,midi:1,gp:1,gp3:1,gp4:1,gp5:1,gpx:1,mscz:1,mscx:1,musicxml:1,mxl:1,sf2:1,sf3:1};
+function __isMusic(name){ var m=/\.([a-z0-9]+)$/i.exec(name||""); return !!(m&&__MUSIC_EXTS[m[1].toLowerCase()]); }
+function __hashAllMusic(h){
+  if(String(h).lastIndexOf("#open=",0)!==0) return false;
+  var ps=String(h).slice(6).split(",").filter(function(p){return p;});
+  return ps.length>0 && ps.every(function(p){ var n=p.split("/").pop(); try{ n=decodeURIComponent(n); }catch(e){} return __isMusic(n); });
+}
+window.__openLocalB64=function(name,b64){
+  if(__isMusic(name)&&__getMode()!==2){
+    try{
+      var q=JSON.parse(sessionStorage.getItem("__pendingMusic")||"[]");
+      q.push({n:name,d:b64}); sessionStorage.setItem("__pendingMusic",JSON.stringify(q));
+      localStorage.setItem("__ppmode","2"); location.reload();
+    }catch(e){ alert("Switch to Jampea (top-right toggle), then open "+name+" again."); }
+    return;
+  }
+  var bin=atob(b64),u=new Uint8Array(bin.length); for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i); __openU8(name,u);
+};
+function __flushPendingMusic(){
+  var q=null;
+  try{ q=JSON.parse(sessionStorage.getItem("__pendingMusic")||"[]"); sessionStorage.removeItem("__pendingMusic"); }catch(e){ return; }
+  q.forEach(function(f){ window.__openLocalB64(f.n,f.d); });
+}
 function __openHashFiles(){
   var h=location.hash||"";
   if(h.lastIndexOf("#open=",0)!==0) return;
+  if(__hashAllMusic(h)&&__getMode()!==2){ try{ localStorage.setItem("__ppmode","2"); }catch(e){} location.reload(); return; }
   try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){}
   h.slice(6).split(",").forEach(function(p){
     if(!p) return;
@@ -247,6 +272,8 @@ function __installSwitcher(mode){
   try{
     var cap=document.getElementById("cap"); if(cap) cap.style.display="none";
     try{ var pp=JSON.parse(localStorage.getItem("_ppp")||"{}"); pp.capShown="false"; localStorage.setItem("_ppp",JSON.stringify(pp)); }catch(e){}
+    // launched with only music files (#open=) -> boot straight into Jampea, no reload needed
+    if(__hashAllMusic(location.hash||"")&&__getMode()!==2){ try{ localStorage.setItem("__ppmode","2"); }catch(e){} }
     var __mode=__getMode();
     __loadAssets();
     var st=document.createElement("style"); st.textContent=await __ungz("_c"); document.head.appendChild(st);
@@ -259,6 +286,7 @@ function __installSwitcher(mode){
     __installSwitcher(__mode);
     __installBadge();
     __openHashFiles();
+    __flushPendingMusic();
   }catch(e){ document.body.innerHTML="<p style='color:#eee;font:16px sans-serif;padding:2em'>Failed to start: "+e+"</p>"; }
 })();
 </script>"""

@@ -13,7 +13,7 @@ ICON_SRC="photopea.com/promo/icon512.png"
 APP="builds/Photopea.app"
 TITLE="Photopea"
 # extensions registered for Finder "Open With" (design docs, images, RAW)
-FILE_EXTS="psd psb ai xd fig sketch pdf eps svg png jpg jpeg jfif gif webp avif bmp ico tif tiff tga dds heic exr ppm pgm dng cr2 cr3 nef arw orf rw2 raf srw pef"
+FILE_EXTS="psd psb ai xd fig sketch pdf eps svg png jpg jpeg jfif gif webp avif bmp ico tif tiff tga dds heic exr ppm pgm dng cr2 cr3 nef arw orf rw2 raf srw pef mid midi gp gp3 gp4 gp5 gpx mscz mscx musicxml mxl sf2 sf3"
 [ -f "$HTML" ] || { echo "ERROR: $HTML not found — run 'python3 pack.py' first." >&2; exit 1; }
 [ -f "$ICON_SRC" ] || { echo "ERROR: $ICON_SRC not found." >&2; exit 1; }
 

@@ -82,10 +82,10 @@ SH
 chmod +x builds/photopea.sh
 
 # file extensions offered in "Open With" (keep in sync with FILE_EXTS in make-mac-app.sh)
-EXTS="psd psb ai xd fig sketch pdf eps svg png jpg jpeg jfif gif webp avif bmp ico tif tiff tga dds heic exr ppm pgm dng cr2 cr3 nef arw orf rw2 raf srw pef"
+EXTS="psd psb ai xd fig sketch pdf eps svg png jpg jpeg jfif gif webp avif bmp ico tif tiff tga dds heic exr ppm pgm dng cr2 cr3 nef arw orf rw2 raf srw pef mid midi gp gp3 gp4 gp5 gpx mscz mscx musicxml mxl sf2 sf3"
 
 # ---------- Linux desktop entry (absolute paths for this machine) ----------
-MIME="image/vnd.adobe.photoshop;application/x-photoshop;application/postscript;application/illustrator;application/pdf;image/svg+xml;image/png;image/jpeg;image/gif;image/webp;image/avif;image/bmp;image/vnd.microsoft.icon;image/tiff;image/heif;image/x-tga;image/x-exr;image/x-portable-pixmap;image/x-portable-graymap;image/x-adobe-dng;image/x-canon-cr2;image/x-canon-cr3;image/x-nikon-nef;image/x-sony-arw;image/x-olympus-orf;image/x-panasonic-rw2;image/x-fuji-raf;image/x-samsung-srw;image/x-pentax-pef;application/octet-stream;"
+MIME="image/vnd.adobe.photoshop;application/x-photoshop;application/postscript;application/illustrator;application/pdf;image/svg+xml;image/png;image/jpeg;image/gif;image/webp;image/avif;image/bmp;image/vnd.microsoft.icon;image/tiff;image/heif;image/x-tga;image/x-exr;image/x-portable-pixmap;image/x-portable-graymap;image/x-adobe-dng;image/x-canon-cr2;image/x-canon-cr3;image/x-nikon-nef;image/x-sony-arw;image/x-olympus-orf;image/x-panasonic-rw2;image/x-fuji-raf;image/x-samsung-srw;image/x-pentax-pef;audio/midi;audio/x-midi;application/vnd.recordare.musicxml;application/vnd.recordare.musicxml+xml;application/x-musescore;application/octet-stream;"
 cat > builds/Photopea.desktop <<DESKTOP
 [Desktop Entry]
 Type=Application
