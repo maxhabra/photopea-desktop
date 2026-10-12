@@ -1,74 +1,70 @@
-# Photopea Offline
+# Photopea Desktop — personal macOS build
 
-A fully offline build of [Photopea](https://www.photopea.com) — **three tools in one app**,
-no internet, no ads, no server. Switch between them from the toggle at the top-right:
+Private offline macOS app for maxhabra, based on the repository history of
+[raphlafalaf/photopea-desktop](https://github.com/raphlafalaf/photopea-desktop).
+The new `desktop/` application uses Electron/Chromium on macOS, with its own teal
+Photopea icon and native macOS menu. Photopea itself remains proprietary; this is
+an unofficial personal build, not an official Photopea release.
 
-- **Photopea** — photo/image editor (a free Photoshop alternative: PSD, layers, filters, RAW…)
-- **Vectorpea** — vector editor (a free Illustrator alternative: AI, SVG, PDF)
-- **Jampea** — music/MIDI editor with piano-roll and sheet views
+## Install
 
-All 50 interface languages are bundled.
+Download the matching ZIP from this repository's Releases:
 
-![Photopea Offline](docs/screenshot.png)
+- `Photopea-Desktop-1.0.0-macOS-arm64.zip`: Apple Silicon (M1 and later).
+- `Photopea-Desktop-1.0.0-macOS-x64.zip`: Intel Macs.
 
-## Download & run
+Unzip and drag **Photopea Desktop.app** to Applications. These builds are **ad-hoc
+signed, not Apple notarized**. If macOS blocks the downloaded app, use System
+Settings → Privacy & Security → Open Anyway after attempting to open it.
+No system-wide security changes are needed. Electron 43 requires macOS 12 or later.
 
-Grab the latest [release](https://github.com/ptrinh/photopea-desktop/releases) and pick your platform:
+## Offline behavior
 
-| Platform | Download | How to run |
-|---|---|---|
-| **macOS** | `Photopea-macos.zip` | unzip, open `Photopea.app` (signed — opens on any Mac) |
-| **Windows** | `Photopea-windows-app.zip` | run `Photopea-portable.exe` (one file, nothing to install) |
-| **Linux** | `Photopea-linux-app.zip` | `chmod +x Photopea.AppImage` and run it |
-| **Any device** | `photopea-offline.html` | just open the file in any modern browser |
+The editor and 61 required snapshot assets are bundled inside the application.
+HTTP and HTTPS requests are handled locally; missing resources fail instead of
+falling back to the internet. WebSockets are blocked. Normal use requires no
+server, browser installation, or network connection, including on first launch.
 
-> **Windows note:** the first time you run the `.exe`, Windows may show "Windows protected your
-> PC" — click **More info → Run anyway**. This happens once (the app is safe, just not
-> code-signed).
+Image editing, clipboard copy/paste, local file opening and exports work locally.
+Cloud storage, account login, AI services, online templates, remote URLs, and fonts
+not installed or bundled are unavailable. Some of these remain visible in the
+editor interface. The app does not claim to make every Photopea feature offline.
+Use local fonts and files. Save your work before quitting.
 
-## Working with big PSD files
+The default window is resizable, View offers zoom/full screen, and a narrowly
+validated layout patch reclaims the empty 320-pixel advertising column. The
+renderer is sandboxed with Node integration disabled; clipboard and local font
+permissions apply only to this editor window.
 
-Big files can eat a lot of memory. Two things help:
+## Build
 
-1. **Use the desktop app** (Windows/Linux) rather than the plain HTML file in a browser tab — the
-   app can use much more of your computer's RAM before running out.
-2. **Low RAM Mode** — big PSDs open as a lightweight preview first (full layer list, but lower
-   resolution) so they load fast and light. Pick an editing tool or click the badge to switch to
-   full resolution. Toggle it under **More → Enable Low RAM Mode** (on by default; automatically
-   off on machines with lots of RAM).
+```sh
+npm ci
+python3 scripts/fetch-snapshot.py  # only when photopea.com/ is absent
+sh scripts/build-macos.sh
+```
 
-![Low RAM Mode](docs/low-ram-mode.png)
+The downloader verifies every asset against `desktop/snapshot.json`. Photopea can
+remove older versioned files or change unversioned assets; it fails on any mismatch.
+For an exact rebuild, recover `Contents/Resources/photopea.com` from the release app
+into the repository's `photopea.com/` directory, then run the build command.
+The downloaded proprietary files and generated builds are excluded from Git.
 
-## Open your files with it
+Local development:
 
-Double-click a file in your OS to open it in Photopea (PSD/PSB, AI, XD, Fig, Sketch, PDF, EPS,
-SVG, images, RAW, and Jampea music formats — MIDI, Guitar Pro, MuseScore, MusicXML, SoundFont):
+```sh
+env -u ELECTRON_RUN_AS_NODE node_modules/.bin/electron desktop
+```
 
-- **macOS** — `Photopea.app` registers automatically (run it once if Finder doesn't list it yet).
-- **Windows** — run `Photopea-portable-OpenWith-Install.bat` (next to the exe). No admin needed;
-  an uninstall script is included.
-- **Linux** — run `Photopea-AppImage-openwith.sh` (next to the AppImage).
+`desktop/` is the macOS release entrypoint. The upstream packer, WKWebView wrapper,
+and release scripts are retained as reference only; they do not build this release.
+Their minified-code patches no longer match the current Photopea snapshot. Do not
+run `refresh.sh`, `pack.py`, or `release.sh` for this macOS application.
 
-Files you open while the app is already running open in the same window.
+## Provenance
 
-## Good to know
-
-- **Clipboard paste & custom fonts:** on the plain HTML file, use **Cmd/Ctrl+V** to paste and
-  drag-and-drop `.ttf`/`.otf` files to add fonts. (The full clipboard and font panel only unlock
-  when the app is served over `http://localhost` — see below.)
-- **Jampea sound:** music playback and MIDI input work offline, including in the desktop apps.
-- **Browser:** needs a modern browser — Chrome/Edge, Safari 16.4+, or Firefox 113+.
-
-## Other ways to use it
-
-- **Launchers** (`Photopea-windows.zip` / `Photopea-linux.zip`) — tiny `Photopea.bat` /
-  `photopea.sh` scripts that open the HTML in an already-installed Chrome or Edge window.
-- **Served** — host the HTML with any static server, e.g.
-  `python3 -m http.server 8899 --bind 127.0.0.1`, then open
-  http://localhost:8899/photopea-offline.html. This unlocks full clipboard paste and the local
-  fonts panel.
-
----
-
-Building from source, the command-line batch tool, and how the offline patch works are all in
-[DEVELOPING.md](DEVELOPING.md).
+Upstream commit: `d014fde`. Editor snapshot: `pp1791725206.js`.
+Runtime: Electron 43.1.1. Exact asset SHA-256 hashes: `desktop/snapshot.json`.
+The original project documentation is retained in `docs/UPSTREAM-README.md` and
+`DEVELOPING.md`. No redistribution license for Photopea is implied by this private
+repository. The Photopea name, icon, and editor belong to their respective owners.

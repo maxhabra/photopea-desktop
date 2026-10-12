@@ -1,0 +1,30 @@
+appId: com.maxhabra.photopea-desktop
+productName: Photopea Desktop
+npmRebuild: false
+electronVersion: 43.1.1
+asar: true
+afterPack: ./desktop/after-pack.cjs
+directories:
+  output: ../builds/macos
+files:
+  - main.cjs
+  - package.json
+extraResources:
+  - from: ../photopea.com
+    to: photopea.com
+    filter:
+      - '**/*'
+      - '!**/*.orig'
+mac:
+  category: public.app-category.graphics-design
+  icon: AppIcon.icns
+  identity: '-'
+  hardenedRuntime: false
+  target:
+    - target: zip
+      arch: [arm64, x64]
+  artifactName: Photopea-Desktop-${version}-macOS-${arch}.${ext}
+fileAssociations:
+  - ext: [psd, psb, png, jpg, jpeg, webp, svg, tif, tiff, pdf]
+    name: Image Document
+    role: Editor

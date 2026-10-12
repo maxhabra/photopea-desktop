@@ -1,0 +1,9 @@
+{
+  "name": "photopea-private-desktop",
+  "productName": "Photopea Desktop",
+  "version": "1.0.0",
+  "description": "Personal offline macOS wrapper for Photopea",
+  "author": "maxhabra",
+  "private": true,
+  "main": "main.cjs"
+}

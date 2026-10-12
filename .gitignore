@@ -14,3 +14,7 @@ test/winlist
 # misc
 .DS_Store
 *.log
+
+# Incomplete snapshot downloads
+photopea-snapshot-*/
+__pycache__/
